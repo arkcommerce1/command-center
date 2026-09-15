@@ -5,13 +5,9 @@ import { Contact, normF, normP, uid } from "@/lib/cc/types";
 
 // GET /api/contacts — unified directory: standalone contacts (Company field)
 // + every person attached to a factory (mapped to factory + product).
-// Donna polls this with Authorization: Bearer $CRON_SECRET.
-export async function GET(req: NextRequest) {
+// Used by both the dashboard UI (no auth) and Donna's poller.
+export async function GET() {
   await pgInit();
-  if (process.env.CRON_SECRET) {
-    if (req.headers.get("authorization") !== `Bearer ${process.env.CRON_SECRET}`)
-      return NextResponse.json({ error: "unauthorized" }, { status: 401 });
-  }
   const standalone = (await listContacts()).map((c) => ({
     id: c.id, name: c.name, role: c.role, company: c.company,
     wechat: c.wechat, whatsapp: c.whatsapp, email: c.email,
