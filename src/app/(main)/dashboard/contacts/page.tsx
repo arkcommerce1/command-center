@@ -59,7 +59,7 @@ export default function ContactsPage() {
         <div>
           <h2 className="text-3xl tracking-tight">Contacts</h2>
           <p className="text-muted-foreground">
-            Everyone Donna talks to — factories, Yuki, you, anyone — across WeChat, WhatsApp and email.
+            Everyone Donna talks to — factories, Yuki, you, anyone — via WhatsApp and email.
           </p>
         </div>
         <Button onClick={() => setOpen((o) => !o)}>{open ? "Cancel" : "+ Contact"}</Button>
