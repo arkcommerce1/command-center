@@ -7,12 +7,10 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
 
-const STAGES = ["spec", "sourcing", "outreach", "sampling", "quotation"] as const;
 const STAGE_LABEL: Record<string, string> = {
   idea: "Idea",
   spec: "Spec Sheet",
@@ -23,7 +21,6 @@ const STAGE_LABEL: Record<string, string> = {
   live: "Live",
   dead: "Dead",
 };
-const FSTAGES = ["intro", "contacted", "sample_requested", "sample_yiwu", "sample_ny", "sample_confirmed", "quoted", "negotiating", "ordered"];
 const FSTAGE_LABEL: Record<string, string> = {
   intro: "Intro",
   contacted: "Contacted",
@@ -35,38 +32,6 @@ const FSTAGE_LABEL: Record<string, string> = {
   negotiating: "Negotiating",
   ordered: "Ordered",
 };
-const FNEXT: Record<string, string> = {
-  intro: "Complete intro, start communication",
-  contacted: "Request samples",
-  sample_requested: "Chase sample shipment",
-  sample_yiwu: "Tell Yuki: ship sample to New York",
-  sample_ny: "Confirm sample (QC)",
-  sample_confirmed: "Get first quotation",
-  quoted: "Compare quotes, negotiate",
-  negotiating: "Push to order",
-  ordered: "",
-};
-
-function PersonAdd({ onAdd }: { fid: string; onAdd: (b: any) => void }) {
-  const [open, setOpen] = React.useState(false);
-  const [f, setF] = React.useState({ name: "", role: "", wechat: "", whatsapp: "", email: "" });
-  if (!open) return <Button size="sm" variant="outline" onClick={() => setOpen(true)}>+ Person</Button>;
-  return (
-    <div className="rounded-md border p-2">
-      <div className="grid grid-cols-2 gap-1.5">
-        <Input value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} placeholder="Name *" />
-        <Input value={f.role} onChange={(e) => setF({ ...f, role: e.target.value })} placeholder="Role" />
-        <Input value={f.wechat} onChange={(e) => setF({ ...f, wechat: e.target.value })} placeholder="WeChat" />
-        <Input value={f.whatsapp} onChange={(e) => setF({ ...f, whatsapp: e.target.value })} placeholder="WhatsApp" />
-        <Input value={f.email} onChange={(e) => setF({ ...f, email: e.target.value })} placeholder="Email" className="col-span-2" />
-      </div>
-      <div className="mt-1.5 flex gap-2">
-        <Button size="sm" disabled={!f.name.trim()} onClick={() => { onAdd(f); setF({ name: "", role: "", wechat: "", whatsapp: "", email: "" }); setOpen(false); }}>Save</Button>
-        <Button size="sm" variant="ghost" onClick={() => setOpen(false)}>Cancel</Button>
-      </div>
-    </div>
-  );
-}
 
 function StageBadge({ v, map }: { v: string; map?: Record<string, string> }) {
   const good = ["received", "quoted", "ordered", "sample_confirmed"].includes(v);
@@ -85,12 +50,9 @@ export default function ProductDetail({ params }: { params: Promise<{ id: string
   const [fs, setFs] = React.useState<any[]>([]);
   const [openId, setOpenId] = React.useState<string | null>(null);
   const [newF, setNewF] = React.useState("");
-  const [note, setNote] = React.useState("");
   const [draft, setDraft] = React.useState("");
   const [draftAi, setDraftAi] = React.useState(false);
   const [upd, setUpd] = React.useState("");
-  const [qprice, setQprice] = React.useState("");
-  const [qqty, setQqty] = React.useState("");
 
   const load = React.useCallback(async () => {
     const r = await fetch(`/api/products/${id}`);
@@ -114,7 +76,6 @@ export default function ProductDetail({ params }: { params: Promise<{ id: string
 
   if (!p) return <p className="text-muted-foreground">Loading…</p>;
   const df = openId ? fs.find((f) => f.id === openId) : null;
-  const cur = STAGES.indexOf(p.stage);
   const steps = [
     { label: "Build spec sheet", done: !!(p as any).specDone, go: () => patch({ specDone: !(p as any).specDone }) },
     { label: "FBA calculator (sheet)", done: !!p.fbaSheetUrl, go: () => document.getElementById("spec-card")?.scrollIntoView() },

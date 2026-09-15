@@ -18,6 +18,12 @@ interface Product {
   startDate: string;
 }
 
+const STAGE_LABEL: Record<string, string> = {
+  idea: "Idea", spec: "Spec Sheet", sourcing: "Sourcing (Yuki)",
+  outreach: "Outreach", sampling: "Sampling", quotation: "Quotation",
+  live: "Live", dead: "Dead",
+};
+
 export default function ProductsPage() {
   const [products, setProducts] = React.useState<Product[]>([]);
   const [name, setName] = React.useState("");
@@ -128,7 +134,7 @@ export default function ProductsPage() {
                     </Link>
                   </TableCell>
                   <TableCell>
-                    <Badge variant={p.started ? "default" : "outline"}>{p.started ? p.stage : "idea"}</Badge>
+                    <Badge variant={p.started ? "default" : "outline"}>{p.started ? (STAGE_LABEL[p.stage] || p.stage) : "Idea"}</Badge>
                   </TableCell>
                   <TableCell className="text-muted-foreground">{p.startDate || "—"}</TableCell>
                   <TableCell className="text-right">
