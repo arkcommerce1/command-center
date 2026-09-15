@@ -32,6 +32,9 @@ export async function GET(req: NextRequest) {
 
 function cleanTitle(t: string): string {
   const unesc = t.replace(/&amp;/g, "&").replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&lt;/g, "<").replace(/&gt;/g, ">");
-  const cut = unesc.split(/[,|;]|\s+-\s+/)[0] || unesc;
-  return cut.trim().slice(0, 120);
+  // Factory-style short title: drop leading ALL-CAPS brand, cut stuffing, drop audience tail.
+  const noBrand = unesc.replace(/^[A-Z]{2,}(?:[&'][A-Z]+)?\s+(?=[A-Z0-9])/, "");
+  const cut = (noBrand.split(/[,|;]|\s+-\s+/)[0] || noBrand).trim();
+  const noAud = cut.replace(/\s+for\s+(men|women|men\s*&\s*women|adults|kids|men \/ women).*$/i, "").trim();
+  return noAud.slice(0, 90);
 }
