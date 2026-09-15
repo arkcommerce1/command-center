@@ -24,7 +24,7 @@ export async function POST(req: NextRequest) {
     id: uid(), name: String(body.name || "Untitled"), started: false,
     stage: "idea", stageUpdatedAt: now, createdAt: now,
     asin: String(body.asin || ""), imageUrl: String(body.imageUrl || ""), fbaSheetUrl: "", startDate: "",
-    masterSku: "", skus: [],
+    masterSku: "", skus: [], specDone: false, sourcingStarted: false,
     spec: blankSpec(), costs: blankCosts(),
   };
   await saveProduct(p);

@@ -41,6 +41,7 @@ export interface Product {
   stageUpdatedAt: number; createdAt: number;
   asin: string; imageUrl: string; fbaSheetUrl: string;
   startDate: string; masterSku: string; skus: SkuRow[];
+  specDone: boolean; sourcingStarted: boolean;
   spec: Spec; costs: Costs;
 }
 
@@ -96,6 +97,8 @@ export function normP(p: Product): Product {
   (p as any).startDate = (p as any).startDate || "";
   (p as any).masterSku = (p as any).masterSku || "";
   (p as any).skus = Array.isArray((p as any).skus) ? (p as any).skus : [];
+  (p as any).specDone = !!(p as any).specDone;
+  (p as any).sourcingStarted = !!(p as any).sourcingStarted;
   p.spec = { ...blankSpec(), ...(p.spec || {}) };
   p.costs = { ...blankCosts(), ...(p.costs || {}) };
   return p;
