@@ -236,6 +236,9 @@ export default function ProductDetail({ params }: { params: Promise<{ id: string
             <Button size="sm" onClick={aiDraft}>
               ✨ AI spec draft
             </Button>
+            <Button size="sm" variant="outline" asChild>
+              <a href={`/api/products/${id}/spec-pdf`} target="_blank" rel="noreferrer">⬇ Download spec PDF</a>
+            </Button>
             <Button
               size="sm"
               variant="outline"
