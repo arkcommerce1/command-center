@@ -413,131 +413,25 @@ export default function ProductDetail({ params }: { params: Promise<{ id: string
                 <SheetTitle>{df.name}</SheetTitle>
               </SheetHeader>
               <div className="mt-4 flex flex-col gap-4">
-                <div className="flex flex-wrap gap-1.5">
-                  {FSTAGES.map((s) => (
-                    <Badge
-                      key={s}
-                      variant={s === df.fstage ? "default" : "outline"}
-                      className="cursor-pointer"
-                      onClick={() => fpatch(df.id, { fstage: s, lastContactAt: Date.now() })}
-                    >
-                      {FSTAGE_LABEL[s]}
-                    </Badge>
-                  ))}
-                </div>
-                {FNEXT[df.fstage || "intro"] && <p className="text-sm text-amber-700">Next: {FNEXT[df.fstage || "intro"]}</p>}
-                <div className="grid grid-cols-2 gap-2">
-                  <div className="grid gap-1.5">
-                    <Label>Sample</Label>
-                    <Select
-                      value={df.sampleStatus}
-                      onValueChange={(v) =>
-                        fpatch(df.id, {
-                          sampleStatus: v,
-                          sampleRequestedAt: v === "requested" && !df.sampleRequestedAt ? Date.now() : df.sampleRequestedAt,
-                          sampleShippedAt: v === "shipped" ? Date.now() : df.sampleShippedAt,
-                        })
-                      }
-                    >
-                      <SelectTrigger>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="none">—</SelectItem>
-                        <SelectItem value="requested">Requested</SelectItem>
-                        <SelectItem value="shipped">Shipped</SelectItem>
-                        <SelectItem value="received">Received</SelectItem>
-                        <SelectItem value="qc">QC ✓</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div className="grid gap-1.5">
-                    <Label>Quote</Label>
-                    <Select value={df.quoteStatus} onValueChange={(v) => fpatch(df.id, { quoteStatus: v })}>
-                      <SelectTrigger>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="none">—</SelectItem>
-                        <SelectItem value="waiting_factory">w/ factory</SelectItem>
-                        <SelectItem value="waiting_me">MY reply</SelectItem>
-                        <SelectItem value="received">Received</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                </div>
+                <p className="text-sm text-muted-foreground">
+                  Factory detail panel is being rebuilt — removed for now per Haim.
+                </p>
                 <div className="flex gap-2">
-                  <Input
-                    value={df.contact || ""}
-                    onChange={(e) => setFs(fs.map((x) => (x.id === df.id ? { ...x, contact: e.target.value } : x)))}
-                    onBlur={(e) => fpatch(df.id, { contact: e.target.value })}
-                    placeholder="contact / wechat / phone"
-                  />
-                  <Button size="sm" variant="outline" onClick={() => fpatch(df.id, { lastContactAt: Date.now() })}>
-                    Ping
-                  </Button>
                   <Button size="sm" variant="outline" onClick={() => fpatch(df.id, { active: !df.active })}>
                     {df.active ? "Active" : "Off"}
                   </Button>
-                </div>
-                <div>
-                  <div className="mb-1 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                    People · {(df.people || []).length}
-                  </div>
-                  {(df.people || []).map((pe: any) => (
-                    <div key={pe.id} className="mb-1 rounded-md border p-2 text-sm">
-                      <div className="flex items-center justify-between">
-                        <span className="font-medium">{pe.name}{pe.role ? ` · ${pe.role}` : ""}</span>
-                        <button className="text-muted-foreground hover:text-destructive" onClick={() => fpatch(df.id, { delPerson: pe.id })}>✕</button>
-                      </div>
-                      <div className="text-xs text-muted-foreground">
-                        {[pe.wechat && `WeChat: ${pe.wechat}`, pe.whatsapp && `WA: ${pe.whatsapp}`, pe.email && pe.email].filter(Boolean).join(" · ") || "no channels yet"}
-                      </div>
-                    </div>
-                  ))}
-                  <PersonAdd fid={df.id} onAdd={(b: any) => fpatch(df.id, { addPerson: b })} />
-                </div>
-                <div className="flex gap-2">
-                  <Input value={qprice} onChange={(e) => setQprice(e.target.value)} placeholder="unit $: 4.20" />
-                  <Input value={qqty} onChange={(e) => setQqty(e.target.value)} placeholder="qty" />
                   <Button
                     size="sm"
-                    variant="outline"
-                    onClick={() => {
-                      fpatch(df.id, { addQuote: { unitPrice: qprice, qty: qqty } });
-                      setQprice("");
-                      setQqty("");
+                    variant="destructive"
+                    onClick={async () => {
+                      if (!confirm(`Remove ${df.name}?`)) return;
+                      await fetch(`/api/factories/${df.id}`, { method: "DELETE" });
+                      setOpenId(null);
+                      load();
                     }}
                   >
-                    Log
+                    Remove factory
                   </Button>
-                </div>
-                {df.quotes.length > 0 && (
-                  <p className="text-xs text-muted-foreground">
-                    last: ${df.quotes[df.quotes.length - 1].unitPrice} x {df.quotes[df.quotes.length - 1].qty}
-                  </p>
-                )}
-                <div>
-                  <Input
-                    value={note}
-                    onChange={(e) => setNote(e.target.value)}
-                    placeholder="Add note… (auto-timestamped)"
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter" && note.trim()) {
-                        fpatch(df.id, { addComment: note.trim(), lastContactAt: Date.now() });
-                        setNote("");
-                      }
-                    }}
-                  />
-                  <div className="mt-2 flex flex-col gap-2">
-                    {df.comments.map((c: any, i: number) => (
-                      <div key={i} className="rounded-md border p-2 text-sm">
-                        {c.text}
-                        <div className="text-xs text-muted-foreground">{new Date(c.ts).toLocaleString()}</div>
-                      </div>
-                    ))}
-                    {df.comments.length === 0 && <p className="text-sm text-muted-foreground">No notes yet.</p>}
-                  </div>
                 </div>
               </div>
             </>
