@@ -39,8 +39,10 @@ export async function POST(req: NextRequest) {
       const j = await r.json();
       const text = j.choices?.[0]?.message?.content?.trim();
       if (text) return NextResponse.json({ draft: text, ai: true });
-      if (j.error) console.error("spec-ai nous error:", JSON.stringify(j.error));
-    } catch (e) { console.error("spec-ai call failed:", e); /* fall through to parser */ }
+      console.error("spec-ai nous non-text response, status", r.status, JSON.stringify(j).slice(0, 500));
+    } catch (e: any) { console.error("spec-ai call failed:", e?.message || e); /* fall through to parser */ }
+  } else {
+    console.error("spec-ai: NOUS_API_KEY not set in this env");
   }
   return NextResponse.json({ draft: heuristic(b.name || "", lines), ai: false });
 }
