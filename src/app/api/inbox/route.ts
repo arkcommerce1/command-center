@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 export const dynamic = "force-dynamic";
 import { listFactories, listProducts, saveFactory, saveProduct } from "@/lib/cc/store";
-import { normF, normP, uid } from "@/lib/cc/types";
+import { normF, normP, uid, type Factory } from "@/lib/cc/types";
 
 // Donna's inbox: WhatsApp updates land on the dashboard.
 // POST /api/inbox  Authorization: Bearer $CRON_SECRET
@@ -27,10 +27,11 @@ export async function POST(req: NextRequest) {
   }
   await saveProduct(p);
   if (b.newFactory?.name) {
-    const fac = {
+    const fac: Factory = {
       id: uid(), productId: p.id, name: String(b.newFactory.name).slice(0, 120),
       contact: String(b.newFactory.contact || ""), channel: "WeChat",
-      active: true, fstage: "intro" as const, sampleStatus: "none" as const, quoteStatus: "none" as const,
+      active: true, fstage: "intro", sampleStatus: "none", quoteStatus: "none",
+      people: [],
       lastContactAt: Date.now(), sampleRequestedAt: null, sampleShippedAt: null,
       reminders: [], comments: b.newFactory.note
         ? [{ ts: Date.now(), text: "Added via Donna: " + String(b.newFactory.note).slice(0, 500) }] : [],

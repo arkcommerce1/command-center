@@ -28,6 +28,8 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ fi
   if (b.toggleReminder) { const r = f.reminders.find((x) => x.id === b.toggleReminder); if (r) r.done = !r.done; }
   if (b.addQuote) { f.quotes.push({ unitPrice: Number(b.addQuote.unitPrice) || 0, qty: Number(b.addQuote.qty) || 0, notes: String(b.addQuote.notes || ""), ts: Date.now() }); f.quoteStatus = "received"; }
   if (b.addFile) f.files.unshift({ name: String(b.addFile.name), url: String(b.addFile.url), ts: Date.now() });
+  if (b.addPerson) { f.people.unshift({ id: Math.random().toString(36).slice(2, 9), name: String(b.addPerson.name || "").slice(0, 80), role: String(b.addPerson.role || "").slice(0, 80), wechat: String(b.addPerson.wechat || "").slice(0, 80), whatsapp: String(b.addPerson.whatsapp || "").slice(0, 40), email: String(b.addPerson.email || "").slice(0, 120) }); }
+  if (b.delPerson) { f.people = f.people.filter((x: any) => x.id !== b.delPerson); }
   await saveFactory(f);
   if (prevSample !== f.sampleStatus || prevQuote !== f.quoteStatus || prevF !== (f as any).fstage) {
     sendEmail(`Factory update: ${esc(f.name)} — ${(f as any).fstage || ""} · sample ${esc(f.sampleStatus)}, quote ${esc(f.quoteStatus)}`,

@@ -47,6 +47,27 @@ const FNEXT: Record<string, string> = {
   ordered: "",
 };
 
+function PersonAdd({ onAdd }: { fid: string; onAdd: (b: any) => void }) {
+  const [open, setOpen] = React.useState(false);
+  const [f, setF] = React.useState({ name: "", role: "", wechat: "", whatsapp: "", email: "" });
+  if (!open) return <Button size="sm" variant="outline" onClick={() => setOpen(true)}>+ Person</Button>;
+  return (
+    <div className="rounded-md border p-2">
+      <div className="grid grid-cols-2 gap-1.5">
+        <Input value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} placeholder="Name *" />
+        <Input value={f.role} onChange={(e) => setF({ ...f, role: e.target.value })} placeholder="Role" />
+        <Input value={f.wechat} onChange={(e) => setF({ ...f, wechat: e.target.value })} placeholder="WeChat" />
+        <Input value={f.whatsapp} onChange={(e) => setF({ ...f, whatsapp: e.target.value })} placeholder="WhatsApp" />
+        <Input value={f.email} onChange={(e) => setF({ ...f, email: e.target.value })} placeholder="Email" className="col-span-2" />
+      </div>
+      <div className="mt-1.5 flex gap-2">
+        <Button size="sm" disabled={!f.name.trim()} onClick={() => { onAdd(f); setF({ name: "", role: "", wechat: "", whatsapp: "", email: "" }); setOpen(false); }}>Save</Button>
+        <Button size="sm" variant="ghost" onClick={() => setOpen(false)}>Cancel</Button>
+      </div>
+    </div>
+  );
+}
+
 function StageBadge({ v, map }: { v: string; map?: Record<string, string> }) {
   const good = ["received", "quoted", "ordered", "sample_confirmed"].includes(v);
   const warn = ["requested", "waiting_factory", "sample_requested", "negotiating", "sample_yiwu"].includes(v);
@@ -279,9 +300,44 @@ export default function ProductDetail({ params }: { params: Promise<{ id: string
               </div>
             </div>
           )}
+          <div className="grid gap-1.5">
+            <Label>Master SKU</Label>
+            <Input value={(p as any).masterSku || ""} onChange={(e) => setP({ ...p, masterSku: e.target.value } as any)} onBlur={(e) => patch({ masterSku: e.target.value })} placeholder="e.g. MB-1800" className="font-mono" />
+          </div>
+          <div>
+            <Label>Child SKUs</Label>
+            <Table>
+              <TableHeader><TableRow><TableHead>SKU</TableHead><TableHead>Size</TableHead><TableHead>Pack</TableHead><TableHead>Order units</TableHead><TableHead className="w-10"></TableHead></TableRow></TableHeader>
+              <TableBody>
+                {((p as any).skus || []).map((r: any, i: number) => (
+                  <TableRow key={r.id || i}>
+                    {(["sku", "size", "pack", "order"] as const).map((k) => (
+                      <TableCell key={k} className="p-1">
+                        <Input value={r[k] || ""} onChange={(e) => {
+                          const skus = [...((p as any).skus || [])];
+                          skus[i] = { ...skus[i], [k]: e.target.value };
+                          setP({ ...p, skus } as any);
+                        }} onBlur={() => patch({ skus: (p as any).skus })} className="h-8" />
+                      </TableCell>
+                    ))}
+                    <TableCell className="p-1">
+                      <button className="text-muted-foreground hover:text-destructive" onClick={() => {
+                        const skus = ((p as any).skus || []).filter((_: any, j: number) => j !== i);
+                        setP({ ...p, skus } as any); patch({ skus });
+                      }}>✕</button>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+            <Button size="sm" variant="outline" className="mt-1.5" onClick={() => {
+              const skus = [...((p as any).skus || []), { id: Math.random().toString(36).slice(2, 9), sku: "", size: "", pack: "", order: "" }];
+              setP({ ...p, skus } as any); patch({ skus });
+            }}>+ SKU row</Button>
+          </div>
           {(
             [
-              ["SKUs", "skus"],
+              ["SKUs (legacy)", "skus"],
               ["Sizes", "sizes"],
               ["Pack sizes", "packSizes"],
               ["Materials", "materials"],
@@ -421,6 +477,23 @@ export default function ProductDetail({ params }: { params: Promise<{ id: string
                   <Button size="sm" variant="outline" onClick={() => fpatch(df.id, { active: !df.active })}>
                     {df.active ? "Active" : "Off"}
                   </Button>
+                </div>
+                <div>
+                  <div className="mb-1 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                    People · {(df.people || []).length}
+                  </div>
+                  {(df.people || []).map((pe: any) => (
+                    <div key={pe.id} className="mb-1 rounded-md border p-2 text-sm">
+                      <div className="flex items-center justify-between">
+                        <span className="font-medium">{pe.name}{pe.role ? ` · ${pe.role}` : ""}</span>
+                        <button className="text-muted-foreground hover:text-destructive" onClick={() => fpatch(df.id, { delPerson: pe.id })}>✕</button>
+                      </div>
+                      <div className="text-xs text-muted-foreground">
+                        {[pe.wechat && `WeChat: ${pe.wechat}`, pe.whatsapp && `WA: ${pe.whatsapp}`, pe.email && pe.email].filter(Boolean).join(" · ") || "no channels yet"}
+                      </div>
+                    </div>
+                  ))}
+                  <PersonAdd fid={df.id} onAdd={(b: any) => fpatch(df.id, { addPerson: b })} />
                 </div>
                 <div className="flex gap-2">
                   <Input value={qprice} onChange={(e) => setQprice(e.target.value)} placeholder="unit $: 4.20" />

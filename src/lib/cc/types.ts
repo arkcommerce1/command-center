@@ -13,6 +13,7 @@ export interface Factory {
   id: string; productId: string; name: string; contact: string;
   channel: string; active: boolean;
   fstage: FStage;
+  people: Person[];
   sampleStatus: SampleStatus; quoteStatus: QuoteStatus;
   lastContactAt: number | null;
   sampleRequestedAt: number | null; sampleShippedAt: number | null;
@@ -31,11 +32,15 @@ export interface Costs {
   dutiesPct: number; shippingUnit: number; ppcUnit: number; monthlySales: number;
 }
 
+export interface SkuRow { id: string; sku: string; size: string; pack: string; order: string }
+
+export interface Person { id: string; name: string; role: string; wechat: string; whatsapp: string; email: string }
+
 export interface Product {
   id: string; name: string; started: boolean; stage: Stage;
   stageUpdatedAt: number; createdAt: number;
   asin: string; imageUrl: string; fbaSheetUrl: string;
-  startDate: string;
+  startDate: string; masterSku: string; skus: SkuRow[];
   spec: Spec; costs: Costs;
 }
 
@@ -66,6 +71,7 @@ export function normF(f: Factory): Factory {
   }
   f.comments = f.comments || []; f.reminders = f.reminders || [];
   f.quotes = f.quotes || []; f.files = f.files || [];
+  (f as any).people = Array.isArray((f as any).people) ? (f as any).people : [];
   return f;
 }
 
@@ -88,6 +94,8 @@ export function uid(): string {
 export function normP(p: Product): Product {
   p.asin = p.asin || ""; p.imageUrl = p.imageUrl || ""; p.fbaSheetUrl = (p as any).fbaSheetUrl || "";
   (p as any).startDate = (p as any).startDate || "";
+  (p as any).masterSku = (p as any).masterSku || "";
+  (p as any).skus = Array.isArray((p as any).skus) ? (p as any).skus : [];
   p.spec = { ...blankSpec(), ...(p.spec || {}) };
   p.costs = { ...blankCosts(), ...(p.costs || {}) };
   return p;

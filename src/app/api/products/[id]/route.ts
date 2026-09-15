@@ -22,6 +22,13 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   if (body.imageUrl !== undefined) p.imageUrl = String(body.imageUrl);
   if (body.fbaSheetUrl !== undefined) (p as any).fbaSheetUrl = String(body.fbaSheetUrl);
   if (body.startDate !== undefined) (p as any).startDate = String(body.startDate);
+  if (body.masterSku !== undefined) (p as any).masterSku = String(body.masterSku).slice(0, 60);
+  if (Array.isArray(body.skus))
+    (p as any).skus = body.skus.slice(0, 200).map((r: any) => ({
+      id: String(r.id || Math.random().toString(36).slice(2, 9)),
+      sku: String(r.sku || "").slice(0, 40), size: String(r.size || "").slice(0, 40),
+      pack: String(r.pack || "").slice(0, 40), order: String(r.order || "").slice(0, 40),
+    }));
   if (body.started !== undefined) {
     p.started = !!body.started;
     if (p.started && p.stage === "idea") { p.stage = "spec"; p.stageUpdatedAt = Date.now(); }
