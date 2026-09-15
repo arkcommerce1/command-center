@@ -5,13 +5,28 @@ export const dynamic = "force-dynamic";
 // Uses the Nous Portal (NOUS_API_KEY) for the draft — no Anthropic key, per Haim's instruction.
 // Falls back to a deterministic parser if the key is missing or the call fails.
 // Returns a DRAFT — the UI previews it and Haim approves/applies/edits.
-const FORMAT = `Build a product spec sheet as short key-value lines, like:
-Material: <material>
-Size: <dimensions>
-Feature: <feature, one per line>
-Pairs / Pack info, compliance marks, weights — one fact per line.
-Keep it terse, no marketing fluff. Drop shipping/return-policy boilerplate entirely — only real product facts.
-Missing info: write your best inference prefixed with "~".`;
+const FORMAT = `Write a factory/supplier-facing product specification sheet - the kind you'd send to a Chinese manufacturer to source or quote a product. Structure it like a real sourcing spec, not a listing description:
+
+PRODUCT NAME: <clear, factory-style name, no marketing fluff>
+CATEGORY: <product category>
+
+MATERIALS: <exact materials, one per line if multiple>
+DIMENSIONS / SIZE RANGE: <measurements>
+WEIGHT: <unit weight>
+COLORS: <color options>
+PACKAGING: <pack size, units per carton, poly bag / box, etc - infer if not given>
+
+KEY FEATURES: <bullet list of functional features only - no marketing language>
+COMPLIANCE / CERTIFICATIONS REQUIRED: <standards the factory must meet, e.g. ANSI, CE, CPSIA - only if applicable>
+CARE / WASHING: <if applicable>
+
+NOTES FOR FACTORY: <anything else relevant to quoting or manufacturing>
+
+Rules:
+- Never include "Country of origin" - the factory IS the origin, this field is nonsensical in a doc sent TO them.
+- Never include buyer-side info (our pricing, our SKUs, our branding, Amazon listing details).
+- No marketing adjectives ("premium", "amazing") - factory specs are functional and terse.
+- Missing info: write your best inference prefixed with "~", but skip entire sections that don't apply rather than filling with "~unknown" everywhere.`;
 
 export async function POST(req: NextRequest) {
   const b = await req.json();
