@@ -2,20 +2,22 @@
 // file-backed JSON locally (dev/verify). Same API both ways.
 import { promises as fs } from "fs";
 import path from "path";
-import { Factory, Product } from "@/lib/cc/types";
+import { Contact, Factory, Product } from "@/lib/cc/types";
 
 const DATA_FILE = path.join(process.cwd(), "data", "store.json");
 const usePg = !!process.env.DATABASE_URL;
 
-async function readLocal(): Promise<{ products: Product[]; factories: Factory[] }> {
+async function readLocal(): Promise<{ products: Product[]; factories: Factory[]; contacts: Contact[] }> {
   try {
-    return JSON.parse(await fs.readFile(DATA_FILE, "utf8"));
+    const d = JSON.parse(await fs.readFile(DATA_FILE, "utf8"));
+    d.contacts = d.contacts || [];
+    return d;
   } catch {
-    return { products: [], factories: [] };
+    return { products: [], factories: [], contacts: [] };
   }
 }
 
-async function writeLocal(data: { products: Product[]; factories: Factory[] }) {
+async function writeLocal(data: { products: Product[]; factories: Factory[]; contacts?: Contact[] }) {
   await fs.mkdir(path.dirname(DATA_FILE), { recursive: true });
   await fs.writeFile(DATA_FILE, JSON.stringify(data, null, 1));
 }
@@ -30,6 +32,44 @@ export async function pgInit() {
   const sql = await pg();
   await sql`CREATE TABLE IF NOT EXISTS products (id TEXT PRIMARY KEY, data JSONB NOT NULL)`;
   await sql`CREATE TABLE IF NOT EXISTS factories (id TEXT PRIMARY KEY, product_id TEXT NOT NULL, data JSONB NOT NULL)`;
+  await sql`CREATE TABLE IF NOT EXISTS contacts (id TEXT PRIMARY KEY, data JSONB NOT NULL)`;
+}
+
+export async function listContacts(): Promise<Contact[]> {
+  if (!usePg) return (await readLocal()).contacts || [];
+  const sql = await pg();
+  const r = await sql`SELECT data FROM contacts ORDER BY data->>'createdAt' DESC`;
+  return r.rows.map((x: any) => x.data as Contact);
+}
+
+export async function getContact(id: string): Promise<Contact | null> {
+  if (!usePg) return ((await readLocal()).contacts || []).find((c) => c.id === id) ?? null;
+  const sql = await pg();
+  const r = await sql`SELECT data FROM contacts WHERE id=${id}`;
+  return (r.rows[0]?.data as Contact) ?? null;
+}
+
+export async function saveContact(c: Contact) {
+  if (!usePg) {
+    const d = await readLocal();
+    d.contacts = d.contacts || [];
+    const i = d.contacts.findIndex((x) => x.id === c.id);
+    if (i >= 0) d.contacts[i] = c; else d.contacts.push(c);
+    return writeLocal(d);
+  }
+  const sql = await pg();
+  await sql`INSERT INTO contacts (id, data) VALUES (${c.id}, ${JSON.stringify(c)}::jsonb)
+    ON CONFLICT (id) DO UPDATE SET data=EXCLUDED.data`;
+}
+
+export async function deleteContact(id: string) {
+  if (!usePg) {
+    const d = await readLocal();
+    d.contacts = (d.contacts || []).filter((c) => c.id !== id);
+    return writeLocal(d);
+  }
+  const sql = await pg();
+  await sql`DELETE FROM contacts WHERE id=${id}`;
 }
 
 export async function listProducts(): Promise<Product[]> {

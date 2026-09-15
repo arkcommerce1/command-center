@@ -34,6 +34,8 @@ export interface Costs {
 
 export interface SkuRow { id: string; sku: string; size: string; pack: string; order: string }
 
+export interface Contact { id: string; name: string; role: string; company: string; wechat: string; whatsapp: string; email: string; notes: string; createdAt: number }
+
 export interface Person { id: string; name: string; role: string; wechat: string; whatsapp: string; email: string }
 
 export interface Product {
