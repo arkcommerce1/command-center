@@ -2,31 +2,31 @@ import { NextRequest, NextResponse } from "next/server";
 export const dynamic = "force-dynamic";
 
 // POST /api/spec-ai { name, amazonTitle?, bullets?[], asin? }
-// Claude (Anthropic) builds a spec in Haim's format when ANTHROPIC_API_KEY
-// is set; otherwise falls back to the deterministic parser.
+// Uses the Nous Portal (NOUS_API_KEY) for the draft — no Anthropic key, per Haim's instruction.
+// Falls back to a deterministic parser if the key is missing or the call fails.
 // Returns a DRAFT — the UI previews it and Haim approves/applies/edits.
 const FORMAT = `Build a product spec sheet as short key-value lines, like:
 Material: <material>
 Size: <dimensions>
 Feature: <feature, one per line>
 Pairs / Pack info, compliance marks, weights — one fact per line.
-Keep it terse, no marketing fluff. Missing info: write your best inference prefixed with "~".`;
+Keep it terse, no marketing fluff. Drop shipping/return-policy boilerplate entirely — only real product facts.
+Missing info: write your best inference prefixed with "~".`;
 
 export async function POST(req: NextRequest) {
   const b = await req.json();
   const lines: string[] = Array.isArray(b.bullets) ? b.bullets.map(String) : [];
-  const key = process.env.ANTHROPIC_API_KEY;
+  const key = process.env.NOUS_API_KEY;
   if (key) {
     try {
-      const r = await fetch("https://api.anthropic.com/v1/messages", {
+      const r = await fetch("https://inference-api.nousresearch.com/v1/chat/completions", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "x-api-key": key,
-          "anthropic-version": "2023-06-01",
+          Authorization: `Bearer ${key}`,
         },
         body: JSON.stringify({
-          model: "claude-haiku-4-5-20251001",
+          model: "z-ai/glm-5.2",
           max_tokens: 600,
           messages: [{
             role: "user",
@@ -36,15 +36,19 @@ export async function POST(req: NextRequest) {
         signal: AbortSignal.timeout(45000),
       });
       const j = await r.json();
-      const text = j.content?.map((c: any) => c.text || "").join("\n").trim();
+      const text = j.choices?.[0]?.message?.content?.trim();
       if (text) return NextResponse.json({ draft: text, ai: true });
-    } catch { /* fall through to parser */ }
+      if (j.error) console.error("spec-ai nous error:", JSON.stringify(j.error));
+    } catch (e) { console.error("spec-ai call failed:", e); /* fall through to parser */ }
   }
   return NextResponse.json({ draft: heuristic(b.name || "", lines), ai: false });
 }
 
 function heuristic(name: string, lines: string[]): string {
-  const src = `${name} ${lines.join(" ")}`;
+  // Drop Amazon return/shipping boilerplate before falling back to the parser.
+  const junk = /go to your orders|select your preferred|drop off and leave|return policy|free shipping option/i;
+  const clean = lines.filter((l) => !junk.test(l));
+  const src = `${name} ${clean.join(" ")}`;
   const out: string[] = [];
   const m = src.match(/(\d+(?:\.\d+)?)\s?(g|gram|kg|ml|oz|inch|"|cm|mm)\b/i);
   const pk = src.match(/(\d+)\s?(-|x)?\s?(pack|count|pcs|pieces)\b/i);
@@ -58,7 +62,7 @@ function heuristic(name: string, lines: string[]): string {
   if (mats.length) out.push(`Material: ${[...new Set(mats)].join(", ")}`);
   if (m) out.push(`Size: ${m[0]}`);
   if (pk) out.push(`Pack: ${pk[0]}`);
-  for (const l of lines.slice(0, 8)) {
+  for (const l of clean.slice(0, 8)) {
     const kv = l.match(/^([^:]{2,30}):\s*(.{2,120})$/);
     out.push(kv ? `${kv[1].trim()}: ${kv[2].trim()}` : `Feature: ${l.slice(0, 120)}`);
   }

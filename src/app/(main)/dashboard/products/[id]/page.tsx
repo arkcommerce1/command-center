@@ -272,7 +272,8 @@ export default function ProductDetail({ params }: { params: Promise<{ id: string
               size="sm"
               variant="outline"
               onClick={() => {
-                const t = `Hi Yuki — new product to source:\n${p.name}${p.asin ? ` (ASIN ${p.asin})` : ""}\nSpec: ${p.spec.materials || "—"} / ${p.spec.sizes || "—"} / pack ${p.spec.packSizes || "—"}\nSheet: ${p.spec.sheetUrl || "in progress"}\nPlease find 5 factories. Thanks!`;
+                const skuLine = ((p as any).skus || []).map((r: any) => `${r.sku || "?"} ${r.size || ""} pack ${r.pack || "?"}: ${r.order || "?"} units`).join("\n");
+                const t = `Hi Yuki — new product to source:\n${p.name}${p.asin ? ` (ASIN ${p.asin})` : ""}\nMaster SKU: ${(p as any).masterSku || "TBD"}\n${skuLine || "SKU breakdown: TBD"}\nSheet: ${p.spec.sheetUrl || "in progress"}\nPlease find 5 factories. Thanks!`;
                 navigator.clipboard?.writeText(t);
               }}
             >
@@ -337,12 +338,6 @@ export default function ProductDetail({ params }: { params: Promise<{ id: string
           </div>
           {(
             [
-              ["SKUs (legacy)", "skus"],
-              ["Sizes", "sizes"],
-              ["Pack sizes", "packSizes"],
-              ["Materials", "materials"],
-              ["Order units", "orderUnits"],
-              ["Photo links", "photos"],
               ["Notes", "notes"],
               ["Google sheet URL", "sheetUrl"],
               ["FBA sheet URL", "fbaSheetUrl"],
