@@ -26,9 +26,9 @@ export async function POST(req: NextRequest) {
           Authorization: `Bearer ${key}`,
         },
         body: JSON.stringify({
-          model: "z-ai/glm-5.2",
-          max_tokens: 600,
-          reasoning_effort: "medium",
+          model: "z-ai/glm-5.3-flash",
+          max_tokens: 3000,
+          reasoning_effort: "low",
           messages: [{
             role: "user",
             content: `${FORMAT}\n\nProduct: ${b.name || ""}${b.asin ? ` (ASIN ${b.asin})` : ""}\nAmazon title: ${b.amazonTitle || ""}\nBullets:\n${lines.map((l) => `- ${l}`).join("\n")}`,
