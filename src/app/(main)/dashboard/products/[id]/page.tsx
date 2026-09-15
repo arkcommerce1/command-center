@@ -184,10 +184,17 @@ export default function ProductDetail({ params }: { params: Promise<{ id: string
         </CardHeader>
         <CardContent className="flex flex-col gap-1">
           {steps.map((s, i) => (
-            <button key={i} onClick={s.go} className="flex items-center gap-3 rounded-md px-2 py-2 text-left text-sm hover:bg-accent">
-              <Checkbox checked={s.done} onCheckedChange={() => s.go()} />
+            <div
+              key={i}
+              role="button"
+              tabIndex={0}
+              onClick={s.go}
+              onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); s.go(); } }}
+              className="flex cursor-pointer items-center gap-3 rounded-md px-2 py-2 text-left text-sm hover:bg-accent"
+            >
+              <Checkbox checked={s.done} onCheckedChange={() => s.go()} onClick={(e) => e.stopPropagation()} />
               <span>{s.label}</span>
-            </button>
+            </div>
           ))}
         </CardContent>
       </Card>
