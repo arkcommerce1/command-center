@@ -10,7 +10,7 @@ export async function GET() {
   await pgInit();
   const standalone = (await listContacts()).map((c) => ({
     id: c.id, name: c.name, role: c.role, company: c.company,
-    wechat: c.wechat, whatsapp: c.whatsapp, email: c.email,
+    wechat: c.wechat, whatsapp: c.whatsapp, email: c.email, notes: c.notes || "",
     factory: "", product: "", source: "contact" as const,
   }));
   const products = (await listProducts()).map(normP);
@@ -20,7 +20,7 @@ export async function GET() {
       for (const pe of (f as any).people || []) {
         linked.push({
           id: pe.id, name: pe.name, role: pe.role || "", company: f.name,
-          wechat: pe.wechat || "", whatsapp: pe.whatsapp || "", email: pe.email || "",
+          wechat: pe.wechat || "", whatsapp: pe.whatsapp || "", email: pe.email || "", notes: "",
           factory: f.name, product: p.name, source: "factory" as const,
         });
       }
