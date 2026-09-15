@@ -78,7 +78,10 @@ export default function ProductDetail({ params }: { params: Promise<{ id: string
   const df = openId ? fs.find((f) => f.id === openId) : null;
   const steps = [
     { label: "Build spec sheet", done: !!(p as any).specDone, go: () => patch({ specDone: !(p as any).specDone }) },
-    { label: "FBA calculator (sheet)", done: !!p.fbaSheetUrl, go: () => document.getElementById("spec-card")?.scrollIntoView() },
+    { label: "FBA calculator (sheet)", done: !!p.fbaSheetUrl, go: () => {
+      if (p.fbaSheetUrl) window.open(p.fbaSheetUrl, "_blank", "noopener,noreferrer");
+      else document.getElementById("spec-card")?.scrollIntoView({ behavior: "smooth" });
+    } },
     { label: "Source factories (Yuki)", done: !!(p as any).sourcingStarted || fs.length > 0, go: () => patch({ sourcingStarted: !(p as any).sourcingStarted, stage: "sourcing" }) },
   ];
 
