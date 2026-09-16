@@ -38,7 +38,7 @@ BRIDGE_URL = "http://127.0.0.1:3001"
 # Job types this runner executes inline. contacts (Goal 3), organize
 # (Goal 6), and cc-followups (Goal 9) run deterministically in code (see
 # cc-contacts / cc-organizer / cc-followups skills): no LLM involved.
-HANDLED_JOB_TYPES = {"cc-echo", "contacts", "organize", "cc-followups"}
+HANDLED_JOB_TYPES = {"cc-echo", "contacts", "organize", "cc-followups", "draft"}
 
 # Set to "1" to build organize request bodies without performing any
 # API call (used by fixture simulations; also honored per-payload via
@@ -1077,11 +1077,217 @@ def _run_job(job: dict) -> None:
             _run_contacts_job(job)  # deterministic, no LLM (Goal 3)
         elif job.get("type") == "cc-followups":
             _run_followups_job(job)  # deterministic, no LLM (Goal 9)
+        elif job.get("type") == "draft":
+            _run_draft_job(job)  # deterministic drafter, no LLM (Goal 8)
         _api("POST", f"/api/agent/jobs/{jid}/done", {})
         logger.info("command_center: job %s (%s) done", jid, job.get("type"))
     except Exception as exc:
         logger.warning("command_center: job %s failed: %s", jid, exc)
         _api("POST", f"/api/agent/jobs/{jid}/failed", {"error": str(exc)[:500]})
+
+
+# ------------------------------------------------------------- drafter ---
+
+def _run_draft_job(job: dict) -> None:
+    """Process a draft job (Goal 8, cc-reply-drafter skill).
+
+    Reads context via GET /api/agent/context?factoryProductId=..., runs the
+    deterministic decideAction logic inline (no LLM — the logic lives in the
+    dashboard's src/lib/cc/drafter.ts; this is a Python mirror), and creates
+    a draft via POST /api/agent/drafts with bubbles + guardrail. The guardrail
+    runs server-side on the drafts route; a blocked draft becomes a
+    guardrail_block question, not a draft.
+    """
+    payload = job.get("payload") or {}
+    fp = str(payload.get("factory_product_id", "") or payload.get("factoryProductId", ""))
+    if not fp:
+        logger.warning("command_center: draft job %s has no factory_product_id", job.get("id"))
+        return
+
+    # Fetch context from the Agent API.
+    ctx_res = _api("GET", f"/api/agent/context?factoryProductId={fp}")
+    if not ctx_res:
+        logger.warning("command_center: draft job %s context fetch failed", job.get("id"))
+        return
+
+    # Read the latest inbound factory message from context.
+    messages = ctx_res.get("messages") or []
+    last_inbound = None
+    for m in reversed(messages):
+        if m.get("direction") == "in":
+            last_inbound = m
+            break
+    if not last_inbound:
+        logger.info("command_center: draft job %s no inbound message found, skipping", job.get("id"))
+        return
+
+    text = str(last_inbound.get("text", "") or "")
+    msg_id = str(last_inbound.get("id", "") or "")
+    chat_id = str(last_inbound.get("chat_id", "") or "")
+
+    # Build context snapshot for decideAction.
+    steps = ctx_res.get("steps") or {}
+    ctx = {
+        "step1Done": bool(steps.get("step1", {}).get("done")),
+        "step2Done": bool(steps.get("step2", {}).get("done")),
+        "step3Done": bool(steps.get("step3", {}).get("done")),
+        "step4Done": bool(steps.get("step4", {}).get("done")),
+        "specAnswers": [f.get("label", "") + ": " + f.get("value", "")
+                        for f in (ctx_res.get("spec", {}).get("fields") or [])],
+        "openChanges": len(ctx_res.get("adjustments") or []),
+        "approach": str(ctx_res.get("approach") or "already_selling"),
+    }
+
+    result = _decide_action(text, ctx, fp, chat_id, msg_id)
+    if result:
+        logger.info("command_center: draft job %s -> %s (%s)",
+                     job.get("id"), result.get("action"), result.get("note", ""))
+
+
+def _decide_action(text, ctx, fp, chat_id, msg_id):
+    """Python mirror of src/lib/cc/drafter.ts decideAction.
+
+    Returns the draft body to POST, or None for 'none' actions.
+    """
+    import re as _re2
+
+    ACK = _re2.compile(r"^(ok|okay|noted|received|thanks|thank you|got it|please wait|one moment|稍等|收到|好的)\W*$", _re2.I)
+    GREET = _re2.compile(r"^(hi|hello|hey|good\s+(morning|afternoon|evening)|dear|你好|您好)[!.,\s]*$", _re2.I)
+    EMOJI = _re2.compile(r"^[\U0001f000-\U0001f9ff\U00002600-\U000027bf\s]+$',", _re2.I)
+
+    t = (text or "").strip()
+    if not t or ACK.match(t) or GREET.match(t):
+        return None
+    if len(t) < 3 and not _re2.search(r"[a-z0-9\u4e00-\u9fff]", t, _re2.I):
+        return None
+
+    FEE = _re2.compile(r"sample\s+(fee|charge|cost)|fee\s+for.{0,20}sample|sample.{0,20}\$\s?\d|\$\s?\d.{0,20}sample", _re2.I)
+    QUOTE = _re2.compile(r"\$\s?\d|USD|RMB|CNY|¥\s?\d|\bprice\b|\bquote\b|FOB|EXW|CIF|DDP", _re2.I)
+    MOQ = _re2.compile(r"\bMOQ\b|minimum order|payment|T/T|L/C|deposit|wire transfer|invoice|paypal|alipay|volume|per month|per year", _re2.I)
+    TRACKING = _re2.compile(r"\b(SF\d{10,}|\d{12,}|[A-Z]{2}\d{9}[A-Z]{2}|YT\d{10,})\b", _re2.I)
+    CAN_MAKE = _re2.compile(r"we\s+can\s+(make|produce|do)|yes.{0,20}can\s+(make|do|produce)|no\s+problem.{0,20}(make|produce)|can\s+be\s+(made|produced)", _re2.I)
+    SPEC_CONFIRM = _re2.compile(r"confirm.{0,20}spec|spec.{0,20}(confirmed|ok|okay|correct|no problem|looks good)|agree.{0,20}spec|make.{0,20}to\s+spec", _re2.I)
+    SAMPLE_COMMIT = _re2.compile(r"will\s+send.{0,20}sample|send.{0,20}sample.{0,20}(tomorrow|soon|this week|next week)|sample.{0,20}(on the way|shipped|ready)", _re2.I)
+    CHANGE = _re2.compile(r"\b(change|adjust|modify|revise|instead of|propose)\b|改|调整", _re2.I)
+    FLEX = _re2.compile(r"carton|packing|packaging|color shade|label|bag", _re2.I)
+
+    if FEE.search(t):
+        _api("POST", "/api/agent/questions",
+             {"factory_product_id": fp, "kind": "fee",
+              "body": {"message_id": msg_id, "text": t[:500]}, "importance": "high"})
+        return {"action": "fee", "note": "sample-fee"}
+
+    if QUOTE.search(t):
+        _api("POST", "/api/agent/quotes",
+             {"factory_product_id": fp, "message_id": msg_id, "text": t[:500]})
+        bubbles = [
+            "Thanks for sharing this.",
+            "What matters most to us right now is quality — could you send samples so we can review them against the spec?",
+        ]
+        return _post_draft(fp, chat_id, bubbles, "record-quote")
+
+    if MOQ.search(t):
+        _api("POST", "/api/agent/questions",
+             {"factory_product_id": fp, "kind": "question",
+              "body": {"issue": "order_terms", "message_id": msg_id, "text": t[:300]},
+              "importance": "medium"})
+        return {"action": "question", "note": "moq-payment-volume"}
+
+    if TRACKING.search(t):
+        trk = TRACKING.search(t).group(1)
+        _api("POST", "/api/agent/steps",
+             {"factory_product_id": fp, "step": 5, "proof_message_id": msg_id})
+        _api("POST", "/api/agent/shipments",
+             {"leg": "china_to_yiwu", "tracking_number": trk, "carrier": "", "status": "created"})
+        return _post_draft(fp, chat_id,
+                            ["Great, thanks for sending this over.",
+                             "We'll watch for it and confirm once it arrives."],
+                            f"tracking:{trk}")
+
+    if SAMPLE_COMMIT.search(t):
+        _api("POST", "/api/agent/steps",
+             {"factory_product_id": fp, "step": 4, "proof_message_id": msg_id})
+        return _post_draft(fp, chat_id,
+                           ["Thanks for confirming.",
+                            "Please share the tracking number once it ships so we can follow it."],
+                           "step4-sample-tracking")
+
+    if SPEC_CONFIRM.search(t) and ctx["openChanges"] == 0:
+        if ctx["step3Done"]:
+            return _post_draft(fp, chat_id,
+                ["Great — glad the spec works.",
+                 "Please send the sample to our China office: 浙江义乌稠城街道丹溪北路18号雪峰银座9楼912室 丁小姐 15067460724.",
+                 "Our box to New York leaves soon, so sooner is better."],
+                "step3-sample-request")
+        else:
+            return {"action": "question", "note": "spec-confirm-pre-step3"}
+
+    if CAN_MAKE.search(t):
+        _api("POST", "/api/agent/steps",
+             {"factory_product_id": fp, "step": 2, "proof_message_id": msg_id})
+        if ctx["openChanges"] > 0:
+            return _post_draft(fp, chat_id,
+                ["Good to hear you can make it.",
+                 "There are still a couple of open spec points — can you confirm those match too?"],
+                "step2-open-changes")
+        return _post_draft(fp, chat_id,
+            ["Good to hear you can make it.",
+             "Can you confirm the spec matches exactly as attached?"],
+            "step2-confirm")
+
+    if CHANGE.search(t):
+        if FLEX.search(t):
+            return _post_draft(fp, chat_id,
+                ["That works for us — close enough on this one.",
+                 "Please include it in the sample."],
+                "flexible-accepted")
+        return _post_draft(fp, chat_id,
+            ["Thanks for checking.",
+             "We need to keep this one exactly to spec — can you make the sample as specified?"],
+            "locked-decline")
+
+    # Question the spec can answer vs spec gap
+    if "?" in t:
+        return _post_draft_or_question(fp, chat_id, t, ctx, msg_id)
+
+    # Default: opener (if first contact) or a generic acknowledgment draft
+    if not ctx["step1Done"]:
+        return _post_draft(fp, chat_id,
+            ["Hi, we import and sell this kind of product under AllSett Health, Refreshify, and Everlasting.",
+             "We're adding another factory — can you make it to the attached spec?",
+             "If so, please send samples to our China office."],
+            "opener", attach_pdf=True)
+
+    return None
+
+
+def _post_draft(fp, chat_id, bubbles, reason, attach_pdf=False):
+    body = {
+        "factory_product_id": fp,
+        "chat_id": chat_id,
+        "kind": "reply",
+        "reason": reason,
+        "bubbles": bubbles,
+        "source": "ai",
+    }
+    if attach_pdf:
+        body["attach_pdf"] = True
+    res = _api("POST", "/api/agent/drafts", body)
+    logger.info("command_center: draft created for %s (%s) ok=%s", fp, reason, res is not None)
+    return {"action": "draft", "note": reason}
+
+
+def _post_draft_or_question(fp, chat_id, text, ctx, msg_id):
+    spec_answers = ctx.get("specAnswers", [])
+    for a in spec_answers:
+        key = a.split(":")[0].strip().lower()
+        if key and key in text.lower():
+            return _post_draft(fp, chat_id, [a], "spec-answer")
+    _api("POST", "/api/agent/questions",
+         {"factory_product_id": fp, "kind": "question",
+          "body": {"issue": "spec_gap", "message_id": msg_id, "text": text[:300]},
+          "importance": "medium"})
+    return {"action": "question", "note": "spec-gap"}
 
 
 # --------------------------------------------------- followups (Goal 9) ---
