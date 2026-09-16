@@ -718,7 +718,7 @@ def plan_organize_actions(payload: dict) -> list:
                                  "importance": "high"},
                                 f"new group {chat_name}: no product match, product_pick question"))
             # Queue an opener draft job.
-            actions.append(("POST", "/api/agent/jobs/claim",
+            actions.append(("POST", "/api/agent/jobs",
                             {"type": "draft", "payload": {
                                 "factory_product_id": new_factory_id,
                                 "chat_id": chat_id,
