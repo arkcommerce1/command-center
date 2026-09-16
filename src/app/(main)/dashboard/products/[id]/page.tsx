@@ -11,6 +11,7 @@ import { Label } from "@/components/ui/label";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 
 import { SpecFieldsSection } from "./_components/spec-fields-section";
@@ -55,8 +56,13 @@ export default function ProductDetail({ params }: { params: Promise<{ id: string
   const [fs, setFs] = React.useState<any[]>([]);
   const [openId, setOpenId] = React.useState<string | null>(null);
   const [newF, setNewF] = React.useState("");
-  const [draft, setDraft] = React.useState("");
-  const [draftAi, setDraftAi] = React.useState(false);
+  const [draftFields, setDraftFields] = React.useState<any[]>([]);
+  const [draftLoading, setDraftLoading] = React.useState(false);
+  const [editMode, setEditMode] = React.useState(false);
+  const [editRequest, setEditRequest] = React.useState("");
+  const [editLoading, setEditLoading] = React.useState(false);
+  const [showManual, setShowManual] = React.useState(false);
+  const [viewVersion, setViewVersion] = React.useState<string>("current");
   const [upd, setUpd] = React.useState("");
   const [yukiPreviewOpen, setYukiPreviewOpen] = React.useState(false);
   const [loading, setLoading] = React.useState(true);
@@ -148,21 +154,64 @@ export default function ProductDetail({ params }: { params: Promise<{ id: string
         if (l.imageUrl) await patch({ imageUrl: l.imageUrl });
       } catch {}
     }
-    const r = await (
-      await fetch("/api/spec-ai", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: p.name, amazonTitle: at, bullets, asin: p.asin }),
-      })
-    ).json();
-    setDraft(r.draft || "");
-    setDraftAi(!!r.ai);
+    setDraftLoading(true);
+    setEditMode(false);
+    setEditRequest("");
+    try {
+      const r = await (
+        await fetch("/api/spec-ai", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ name: p.name, amazonTitle: at, bullets, asin: p.asin }),
+        })
+      ).json();
+      setDraftFields(r.fields || []);
+    } catch {
+      setDraftFields([]);
+    } finally {
+      setDraftLoading(false);
+    }
+  }
+
+  async function aiEdit() {
+    if (!editRequest.trim()) return;
+    setEditLoading(true);
+    try {
+      const r = await (
+        await fetch("/api/spec-ai-edit", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ fields: draftFields, request: editRequest.trim() }),
+        })
+      ).json();
+      if (r.after) {
+        setDraftFields(r.after);
+      }
+      setEditRequest("");
+      setEditMode(false);
+    } catch {
+      // keep current fields
+    } finally {
+      setEditLoading(false);
+    }
+  }
+
+  async function approveDraft() {
+    await patch({ specFields: draftFields, approveSpecVersion: true });
+    setDraftFields([]);
+    setEditMode(false);
+    setEditRequest("");
+    setViewVersion("current");
   }
 
   // --- Stage ladder computations ---
   const specApproved = !!(p as any)?.specVersion && (p as any).specVersion > 0;
   const specFields: any[] = (p as any)?.specFields || [];
   const specNeedsInput = specFields.filter((f: any) => !f.value || f.value.trim() === "").length;
+  const specVersionNum: number = (p as any)?.specVersion || 0;
+  const specVersionsList: any[] = ((p as any)?.specVersions || []).slice().sort((a: any, b: any) => b.version - a.version);
+  const viewingVer = viewVersion !== "current" ? specVersionsList.find((v: any) => String(v.version) === viewVersion) : null;
+  const displayVerFields: any[] = viewingVer ? (viewingVer as any).fields : specVersionsList[0]?.fields || [];
   const fbaSheetUrl = (p as any)?.fbaSheetUrl || null;
   const factoryCount = fs.length;
   const factoriesWithStep1 = fs.filter((f) => f.fstage && f.fstage !== "intro").length;
@@ -385,15 +434,28 @@ export default function ProductDetail({ params }: { params: Promise<{ id: string
           <CardTitle>Spec sheet</CardTitle>
         </CardHeader>
         <CardContent className="flex flex-col gap-3">
-          <div className="flex gap-2">
-            <Button size="sm" onClick={aiDraft}>
-              ✨ AI spec draft
+          <div className="flex flex-wrap gap-2">
+            <Button size="sm" onClick={aiDraft} disabled={draftLoading}>
+              {draftLoading ? "Reading Amazon listing…" : "✨ AI spec draft"}
             </Button>
-            <Button size="sm" variant="outline" asChild>
-              <a href={`/api/products/${id}/spec-pdf`} target="_blank" rel="noreferrer">
-                ⬇ Download spec PDF
-              </a>
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={!specApproved}
+              title={!specApproved ? "Approve a spec first." : undefined}
+              asChild={specApproved}
+            >
+              {specApproved ? (
+                <a href={`/api/products/${id}/spec-pdf`} target="_blank" rel="noreferrer">
+                  ⬇ Download spec PDF
+                </a>
+              ) : (
+                <span>⬇ Download spec PDF</span>
+              )}
             </Button>
+            {!specApproved && (
+              <span className="self-center text-xs text-muted-foreground">Approve a spec first.</span>
+            )}
             <Button
               size="sm"
               variant="outline"
@@ -415,29 +477,122 @@ export default function ProductDetail({ params }: { params: Promise<{ id: string
               Brief v{lastBrief.version} sent to Yuki, {new Date(lastBrief.sentAt).toLocaleString()}
             </div>
           )}
-          {draft && (
+
+          {/* AI draft review box - single box with Approve + Suggest an edit */}
+          {draftFields.length > 0 && (
             <div className="rounded-lg border border-violet-200 bg-violet-50/50 p-3">
-              <div className="mb-2 text-xs text-muted-foreground">
-                {draftAi ? "🤖 AI draft" : "📝 Draft"} — edit, then approve:
+              <div className="mb-2 text-xs text-muted-foreground">🤖 AI spec draft — review:</div>
+              <div className="flex flex-col divide-y rounded-md border bg-white">
+                {draftFields.map((f: any, i: number) => (
+                  <div key={f.id || i} className={`flex items-start gap-2 p-2 ${f.value === "Needs input" ? "bg-amber-50/50" : ""}`}>
+                    <div className="min-w-[120px] text-sm font-medium">{f.label || "—"}</div>
+                    <div className="flex-1 text-sm">{f.value || "Needs input"}</div>
+                    {f.tag && (
+                      <Badge variant={f.tag === "locked" ? "default" : f.tag === "flexible" ? "secondary" : "outline"} className="text-[10px]">
+                        {f.tag}
+                      </Badge>
+                    )}
+                  </div>
+                ))}
               </div>
-              <Textarea value={draft} onChange={(e) => setDraft(e.target.value)} rows={10} className="mb-2 bg-white" />
-              <div className="flex gap-2">
-                <Button
-                  size="sm"
-                  onClick={async () => {
-                    const cur = p.spec.notes ? `${p.spec.notes}\n${draft}` : draft;
-                    await patch({ spec: { notes: cur } });
-                    setDraft("");
-                  }}
-                >
-                  Approve → save to spec
-                </Button>
-                <Button size="sm" variant="outline" onClick={() => setDraft("")}>
-                  Discard
-                </Button>
+              {editMode ? (
+                <div className="mt-2 flex flex-col gap-2">
+                  <Textarea
+                    value={editRequest}
+                    onChange={(e) => setEditRequest(e.target.value)}
+                    placeholder="Describe what to change in plain English…"
+                    rows={2}
+                    className="bg-white"
+                    autoFocus
+                  />
+                  <div className="flex gap-2">
+                    <Button size="sm" onClick={aiEdit} disabled={editLoading || !editRequest.trim()}>
+                      {editLoading ? "Rewriting…" : "Rewrite spec"}
+                    </Button>
+                    <Button size="sm" variant="outline" onClick={() => { setEditMode(false); setEditRequest(""); }}>
+                      Cancel
+                    </Button>
+                  </div>
+                </div>
+              ) : (
+                <div className="mt-2 flex gap-2">
+                  <Button size="sm" onClick={approveDraft}>
+                    Approve → v{specVersionNum + 1}
+                  </Button>
+                  <Button size="sm" variant="outline" onClick={() => setEditMode(true)}>
+                    Suggest an edit
+                  </Button>
+                  <Button size="sm" variant="ghost" onClick={() => { setDraftFields([]); setEditMode(false); setEditRequest(""); }}>
+                    Discard
+                  </Button>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Approved spec display with version dropdown */}
+          {specApproved && draftFields.length === 0 && (
+            <div className="flex flex-col gap-2">
+              <div className="flex items-center gap-2">
+                <span className="text-sm font-medium">Current (v{specVersionNum})</span>
+                {specVersionsList.length > 0 && (
+                  <Select value={viewVersion} onValueChange={setViewVersion}>
+                    <SelectTrigger size="sm" className="w-[200px]">
+                      <SelectValue placeholder="Version" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="current">Current (v{specVersionNum})</SelectItem>
+                      {specVersionsList.map((v: any) => (
+                        <SelectItem key={v.version} value={String(v.version)}>
+                          v{v.version} — {new Date(v.createdAt).toLocaleDateString()}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
+              </div>
+              <div className="flex flex-col divide-y rounded-lg border">
+                {displayVerFields.length === 0 ? (
+                  <div className="p-3 text-sm text-muted-foreground">No fields in this version.</div>
+                ) : (
+                  displayVerFields.map((f: any, i: number) => (
+                    <div key={f.id || i} className={`flex items-start gap-2 p-2 ${f.value === "Needs input" ? "bg-amber-50/50" : ""}`}>
+                      <div className="min-w-[120px] text-sm font-medium">{f.label || "—"}</div>
+                      <div className="flex-1 text-sm">{f.value || "Needs input"}</div>
+                      {f.tag && (
+                        <Badge variant={f.tag === "locked" ? "default" : f.tag === "flexible" ? "secondary" : "outline"} className="text-[10px]">
+                          {f.tag}
+                        </Badge>
+                      )}
+                    </div>
+                  ))
+                )}
               </div>
             </div>
           )}
+
+          {/* Collapsed manual edit - backup only */}
+          <div>
+            <button
+              className="text-xs text-muted-foreground underline hover:text-foreground"
+              onClick={() => setShowManual(!showManual)}
+            >
+              {showManual ? "Hide manual edit" : "Edit manually"}
+            </button>
+            {showManual && (
+              <div className="mt-2 rounded-lg border p-3">
+                <div className="mb-2 text-sm font-semibold">Structured spec fields</div>
+                <SpecFieldsSection
+                  productId={id}
+                  specFields={(p as any).specFields || []}
+                  specVersion={(p as any).specVersion || 0}
+                  specVersions={(p as any).specVersions || []}
+                  onSaved={load}
+                />
+              </div>
+            )}
+          </div>
+
           <div className="grid gap-1.5">
             <Label>Master SKU</Label>
             <Input
@@ -551,17 +706,6 @@ export default function ProductDetail({ params }: { params: Promise<{ id: string
           ))}
           <div className="text-xs text-muted-foreground">
             Last update{p.spec.lastUpdate ? `: ${p.spec.lastUpdate}` : " — none yet"}
-          </div>
-
-          <div className="rounded-lg border p-3">
-            <div className="mb-2 text-sm font-semibold">Structured spec fields</div>
-            <SpecFieldsSection
-              productId={id}
-              specFields={(p as any).specFields || []}
-              specVersion={(p as any).specVersion || 0}
-              specVersions={(p as any).specVersions || []}
-              onSaved={load}
-            />
           </div>
 
           <Input
