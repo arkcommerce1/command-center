@@ -524,3 +524,19 @@ Buttons/controls (from reading `src/app/(main)/dashboard/products/[id]/page.tsx`
   follow-up (0→1, 1→2 both queue, 2→archive).
 - **`npm run build` green; `npx vitest run` 15 files / 217 tests green.**
   Nothing committed/pushed/deployed.
+
+## Round 2 — Dashboard Fixes (Goals 1-15)
+
+### Decisions
+- **Factory-level stages**: Added `factoryStage` (5-step: spec_agreed → sample_committed → passed_china → arrived_ny → sample_approved) to the Factory type. Each factory tracks its own stage independently. normF infers factoryStage from the old `fstage` field if not set (additive migration).
+- **Product ladder simplified**: StageLadder now shows only 3 product-level steps (Spec approved, FBA numbers saved, Factories contacted). Steps 4-8 moved to the FactoryLadder component on the factory detail Sheet.
+- **Factory progress summary**: Product page shows a clickable summary line ("3 factories · 1 spec agreed · 1 sample committed · ...") instead of fake shared steps 4-8.
+- **Send Yuki Brief**: One click sends the spec PDF via WhatsApp bridge (`/send-media`). No preview dialog. Uses the latest approved spec version. Activity log entry created on send.
+- **Include order quantity checkbox**: Defaults unchecked on every page load. When unchecked, the PDF excludes order quantities. Download spec PDF is not affected.
+- **White flash fix**: Added `color-scheme: light dark` and `background-color: var(--background)` to the `html` element in globals.css, plus inline `style` on body element in layout.tsx.
+- **One status**: Removed the old `STAGE_LABEL` badge. Only the `productStatus` dropdown (Queue/Active/Completed) is shown.
+- **Start date label**: Added visible "Start date" label next to the date input.
+- **Platform-aware shortcut**: Search bar kbd shows `⌘` on Mac, `Ctrl` on Windows/Linux via `navigator.platform` detection.
+- **Editable factories table**: All columns (Name, Stage, Sample, Quote, Contact, Last note) are now editable inline. Row click opens factory detail Sheet.
+- **ASIN removed from spec PDF**: No ASIN in the spec sheet or send-yuki-pdf.
+- **"Needs input" removed from spec display**: Fields with no value are skipped entirely.
