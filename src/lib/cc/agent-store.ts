@@ -16,6 +16,8 @@ export interface AgentDb {
   chatMembers: any[];
   messages: any[];
   contacts: any[];
+  factories: any[];
+  factoryProducts: any[];
   agentJobs: any[];
   steps: any[];
   statusUpdates: any[];
@@ -38,6 +40,8 @@ const EMPTY: AgentDb = {
   chatMembers: [],
   messages: [],
   contacts: [],
+  factories: [],
+  factoryProducts: [],
   agentJobs: [],
   steps: [],
   statusUpdates: [],

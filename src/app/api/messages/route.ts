@@ -12,8 +12,13 @@ export async function GET(req: NextRequest) {
   const messages = await dbFind("messages", () => true);
   const chats = await dbFind("chats", () => true);
   const contacts = await dbFind("contacts", () => true);
+  const members = await dbFind("chatMembers", () => true);
   const chatById = new Map(chats.map((c: any) => [c.id, c]));
   const contactById = new Map(contacts.map((c: any) => [c.id, c]));
+  const memberByChatAndContact = new Map<string, string>();
+  for (const m of members as any[]) {
+    if (m.chat_id && m.contact_id) memberByChatAndContact.set(`${m.chat_id}:${m.contact_id}`, m.name || "");
+  }
   const rows = messages
     .filter((m: any) => !chatId || m.chat_id === chatId)
     .sort((a: any, b: any) => (Number(b.sent_at) || 0) - (Number(a.sent_at) || 0))
@@ -22,7 +27,7 @@ export async function GET(req: NextRequest) {
       id: m.id,
       chat_id: m.chat_id,
       chat_name: chatById.get(m.chat_id)?.name || chatById.get(m.chat_id)?.external_id || "",
-      sender: contactById.get(m.contact_id)?.name || m.contact_id || "",
+      sender: contactById.get(m.contact_id)?.name || memberByChatAndContact.get(`${m.chat_id}:${m.contact_id}`) || m.contact_id || "",
       direction: m.direction || "in",
       text: m.text || "",
       translation: m.translation || "",

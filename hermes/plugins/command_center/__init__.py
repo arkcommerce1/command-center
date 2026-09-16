@@ -220,7 +220,6 @@ def on_pre_gateway_dispatch(event=None, gateway=None, **_):
             ],
             "message": {
                 "direction": "in",
-                "contact_id": str(getattr(source, "user_id", "") or getattr(source, "user_name", "") or ""),
                 "text": getattr(event, "text", "") or "",
                 "media": getattr(event, "media_urls", []) or [],
                 "sent_at": int(time.time() * 1000),
@@ -698,11 +697,37 @@ def plan_organize_actions(payload: dict) -> list:
     actions: list = []
 
     if not factory_id:
-        actions.append(
-            ("log-only", "organize/new-group", {},
-             f"new group '{chat_name or chat_id}': no factory_id — "
-             "no Agent API endpoint creates factories/factory_products, "
-             "so setup + opener draft are deferred (see STACK)"))
+        # New group: create factory from chat name, link chat, queue opener draft.
+        factory_name = chat_name or chat_id
+        factory_res = _api("POST", "/api/agent/factories", {
+            "name": factory_name,
+            "company_name": "",
+            "chat_id": chat_id,
+            "product_id": "",
+        })
+        new_factory_id = str((factory_res or {}).get("factory", {}).get("id", "") or "")
+        if new_factory_id:
+            actions.append(("log-only", "organize/new-factory", {},
+                           f"created factory {new_factory_id} for chat {chat_name or chat_id}"))
+            # Re-link products if any exist, else queue a product_pick question.
+            if not products:
+                actions.append(("POST", "/api/agent/questions",
+                                {"factory_product_id": new_factory_id,
+                                 "kind": "product_pick",
+                                 "body": {"chat_name": chat_name, "chat_id": chat_id},
+                                 "importance": "high"},
+                                f"new group {chat_name}: no product match, product_pick question"))
+            # Queue an opener draft job.
+            actions.append(("POST", "/api/agent/jobs/claim",
+                            {"type": "draft", "payload": {
+                                "factory_product_id": new_factory_id,
+                                "chat_id": chat_id,
+                                "kind": "opener",
+                            }},
+                            f"opener draft queued for new factory {new_factory_id}"))
+        else:
+            actions.append(("log-only", "organize/factory-create-failed", {},
+                           f"failed to create factory for {chat_name}: API returned no id"))
         return actions
 
     touched: dict = {}  # fp_id -> per-product batch state
