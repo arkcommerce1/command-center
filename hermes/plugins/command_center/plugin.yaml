@@ -1,0 +1,7 @@
+name: command_center
+version: 1.0.0
+description: "Command Center bridge for Donna: silent ingest of factory chats, agent job runner, approved-message outbox sender, tick, send-block guard, and cc_* API tools. Test traffic only in allowlisted chats (CC Test)."
+author: "Ark Commerce"
+hooks:
+  - pre_gateway_dispatch
+  - pre_tool_call
