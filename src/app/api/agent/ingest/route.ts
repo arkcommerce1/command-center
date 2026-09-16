@@ -67,17 +67,44 @@ export async function POST(req: NextRequest) {
     sent_at: b.message.sent_at || Date.now(),
   });
 
-  // Queue jobs: contacts (unknown senders) + organize (batch per chat).
+  // Queue jobs with RICH payloads so processors can actually work.
+  const sender = b.members.find((m) => m.external_id === b.message.contact_id) || b.members[0] || {};
+  const jobPayload = {
+    chat: {
+      id: chat.id,
+      external_id: b.chat.external_id,
+      channel: b.chat.channel,
+      name: b.chat.name,
+      kind: b.chat.kind,
+      factory_id: b.chat.factory_id,
+    },
+    sender: {
+      external_id: sender.external_id || "",
+      name: sender.name || "",
+      contact_id: sender.contact_id || b.message.contact_id || "",
+    },
+    message: {
+      id: message.id,
+      external_id: b.external_id,
+      text: b.message.text,
+      direction: b.message.direction,
+      sent_at: b.message.sent_at || Date.now(),
+      contact_id: b.message.contact_id || sender.external_id || "",
+    },
+    existing_contacts: [] as any[],
+    known_factories: [] as any[],
+  };
+
   const senderKnown = !!b.message.contact_id;
   if (!senderKnown) {
-    await dbInsert("agentJobs", { type: "contacts", status: "queued", payload: { chat_id: chat.id, message_id: message.id } });
+    await dbInsert("agentJobs", { type: "contacts", status: "queued", payload: jobPayload });
   }
   const pendingOrganize = await dbFind(
     "agentJobs",
     (j) => j.type === "organize" && j.status === "queued" && j.payload?.chat_id === chat.id,
   );
   if (pendingOrganize.length === 0) {
-    await dbInsert("agentJobs", { type: "organize", status: "queued", payload: { chat_id: chat.id } });
+    await dbInsert("agentJobs", { type: "organize", status: "queued", payload: jobPayload });
   }
   return NextResponse.json({ deduped: false, chat, message, jobs_queued: senderKnown ? ["organize"] : ["contacts", "organize"] });
 }

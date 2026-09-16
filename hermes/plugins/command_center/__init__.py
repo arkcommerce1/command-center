@@ -220,6 +220,7 @@ def on_pre_gateway_dispatch(event=None, gateway=None, **_):
             ],
             "message": {
                 "direction": "in",
+                "contact_id": str(getattr(source, "user_id", "") or getattr(source, "user_name", "") or ""),
                 "text": getattr(event, "text", "") or "",
                 "media": getattr(event, "media_urls", []) or [],
                 "sent_at": int(time.time() * 1000),

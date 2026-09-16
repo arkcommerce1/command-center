@@ -22,7 +22,7 @@ export async function GET(req: NextRequest) {
       id: m.id,
       chat_id: m.chat_id,
       chat_name: chatById.get(m.chat_id)?.name || chatById.get(m.chat_id)?.external_id || "",
-      sender: contactById.get(m.contact_id)?.name || "",
+      sender: contactById.get(m.contact_id)?.name || m.contact_id || "",
       direction: m.direction || "in",
       text: m.text || "",
       translation: m.translation || "",
