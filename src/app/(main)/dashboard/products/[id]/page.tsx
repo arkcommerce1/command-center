@@ -5,11 +5,13 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
+import { SpecFieldsSection } from "./_components/spec-fields-section";
 
 const STAGE_LABEL: Record<string, string> = {
   idea: "Idea",
@@ -53,6 +55,7 @@ export default function ProductDetail({ params }: { params: Promise<{ id: string
   const [draft, setDraft] = React.useState("");
   const [draftAi, setDraftAi] = React.useState(false);
   const [upd, setUpd] = React.useState("");
+  const [yukiPreviewOpen, setYukiPreviewOpen] = React.useState(false);
 
   const load = React.useCallback(async () => {
     const r = await fetch(`/api/products/${id}`);
@@ -76,6 +79,49 @@ export default function ProductDetail({ params }: { params: Promise<{ id: string
 
   if (!p) return <p className="text-muted-foreground">Loading…</p>;
   const df = openId ? fs.find((f) => f.id === openId) : null;
+  const yukiBriefs: any[] = (p as any).yukiBriefs || [];
+  const lastBrief = yukiBriefs.length ? yukiBriefs[yukiBriefs.length - 1] : null;
+  const specDone = !!(p as any).specDone;
+  const specUpdatedAt = (p as any).specUpdatedAt as number | null;
+  const isOutdated = !!lastBrief && !!specUpdatedAt && specUpdatedAt > lastBrief.sentAt;
+  const canSendBrief = specDone && !!(p.spec?.notes && p.spec.notes.trim());
+  const yukiChecklist = (p as any).yukiChecklist || {};
+  const boxCutoffDate = (p as any).boxCutoffDate || "";
+
+  function buildYukiBriefContent() {
+    const skuLine = ((p as any).skus || []).map((r: any) => `${r.sku || "?"} ${r.size || ""} pack ${r.pack || "?"}: ${r.order || "?"} units`).join("\n");
+    const factoryLines = fs.filter((f) => f.active).map((f) => `- ${f.name}${f.contact ? ` (${f.contact})` : ""}`).join("\n");
+    return [
+      `Hi Yuki — brief for: ${p.name}${p.asin ? ` (ASIN ${p.asin})` : ""}`,
+      `Master SKU: ${(p as any).masterSku || "TBD"}`,
+      skuLine || "SKU breakdown: TBD",
+      "",
+      "Spec notes:",
+      p.spec.notes || "(none)",
+      "",
+      "Checklist:",
+      `Items: ${yukiChecklist.items || "TBD"}`,
+      `Variants: ${yukiChecklist.variants || "TBD"}`,
+      `Quantities: ${yukiChecklist.quantities || "TBD"}`,
+      `Delivery address: ${yukiChecklist.deliveryAddress || "TBD"}`,
+      `Fee: ${yukiChecklist.fee || "TBD"}`,
+      `Dates: ${yukiChecklist.dates || "TBD"}`,
+      "",
+      "Factories / contacts:",
+      factoryLines || "(none active yet)",
+      "",
+      `Box cutoff date: ${boxCutoffDate || "TBD"}`,
+    ].join("\n");
+  }
+
+  async function sendYukiBrief() {
+    const content = buildYukiBriefContent();
+    const nextVersion = (lastBrief?.version || 0) + 1;
+    const brief = { version: nextVersion, sentAt: Date.now(), content };
+    await patch({ yukiBriefs: [...yukiBriefs, brief] });
+    setYukiPreviewOpen(false);
+  }
+
   const steps = [
     { label: "Build spec sheet", done: !!(p as any).specDone, go: () => patch({ specDone: !(p as any).specDone }) },
     { label: "FBA calculator (sheet)", done: !!p.fbaSheetUrl, go: () => {
@@ -245,15 +291,23 @@ export default function ProductDetail({ params }: { params: Promise<{ id: string
             <Button
               size="sm"
               variant="outline"
-              onClick={() => {
-                const skuLine = ((p as any).skus || []).map((r: any) => `${r.sku || "?"} ${r.size || ""} pack ${r.pack || "?"}: ${r.order || "?"} units`).join("\n");
-                const t = `Hi Yuki — new product to source:\n${p.name}${p.asin ? ` (ASIN ${p.asin})` : ""}\nMaster SKU: ${(p as any).masterSku || "TBD"}\n${skuLine || "SKU breakdown: TBD"}\nSheet: ${p.spec.sheetUrl || "in progress"}\nPlease find 5 factories. Thanks!`;
-                navigator.clipboard?.writeText(t);
-              }}
+              disabled={!canSendBrief}
+              title={!canSendBrief ? "Approve the spec (Build spec sheet + notes) before sending to Yuki" : undefined}
+              onClick={() => setYukiPreviewOpen(true)}
             >
-              Copy Yuki brief
+              {lastBrief ? "Resend Yuki Brief" : "Send Yuki Brief"}
             </Button>
+            {isOutdated && (
+              <Badge variant="destructive" className="self-center">
+                Outdated — Yuki has v{lastBrief.version}
+              </Badge>
+            )}
           </div>
+          {lastBrief && (
+            <div className="text-xs text-muted-foreground">
+              Brief v{lastBrief.version} sent to Yuki, {new Date(lastBrief.sentAt).toLocaleString()}
+            </div>
+          )}
           {draft && (
             <div className="rounded-lg border border-violet-200 bg-violet-50/50 p-3">
               <div className="mb-2 text-xs text-muted-foreground">{draftAi ? "🤖 AI draft" : "📝 Draft"} — edit, then approve:</div>
@@ -343,6 +397,18 @@ export default function ProductDetail({ params }: { params: Promise<{ id: string
             </div>
           ))}
           <div className="text-xs text-muted-foreground">Last update{p.spec.lastUpdate ? `: ${p.spec.lastUpdate}` : " — none yet"}</div>
+
+          <div className="rounded-lg border p-3">
+            <div className="mb-2 text-sm font-semibold">Structured spec fields</div>
+            <SpecFieldsSection
+              productId={id}
+              specFields={(p as any).specFields || []}
+              specVersion={(p as any).specVersion || 0}
+              specVersions={(p as any).specVersions || []}
+              onSaved={load}
+            />
+          </div>
+
           <Input
             value={upd}
             onChange={(e) => setUpd(e.target.value)}
@@ -358,6 +424,40 @@ export default function ProductDetail({ params }: { params: Promise<{ id: string
             <Input value={p.asin || ""} onChange={(e) => setP({ ...p, asin: e.target.value.toUpperCase() })} onBlur={(e) => patch({ asin: e.target.value.toUpperCase() })} placeholder="ASIN" maxLength={10} className="font-mono uppercase" />
             <Input value={p.imageUrl || ""} onChange={(e) => setP({ ...p, imageUrl: e.target.value })} onBlur={(e) => patch({ imageUrl: e.target.value })} placeholder="Photo URL" />
           </div>
+          <div className="rounded-lg border p-3">
+            <div className="mb-2 text-sm font-semibold">Yuki brief checklist</div>
+            <div className="grid grid-cols-2 gap-2">
+              {(
+                [
+                  ["Items", "items"],
+                  ["Variants", "variants"],
+                  ["Quantities", "quantities"],
+                  ["Delivery address", "deliveryAddress"],
+                  ["Fee", "fee"],
+                  ["Dates", "dates"],
+                ] as const
+              ).map(([label, k]) => (
+                <div key={k} className="grid gap-1.5">
+                  <Label>{label}</Label>
+                  <Input
+                    value={yukiChecklist[k] || ""}
+                    onChange={(e) => setP({ ...p, yukiChecklist: { ...yukiChecklist, [k]: e.target.value } })}
+                    onBlur={(e) => patch({ yukiChecklist: { [k]: e.target.value } })}
+                  />
+                </div>
+              ))}
+              <div className="grid gap-1.5">
+                <Label>Box cutoff date</Label>
+                <Input
+                  type="date"
+                  value={boxCutoffDate}
+                  onChange={(e) => setP({ ...p, boxCutoffDate: e.target.value })}
+                  onBlur={(e) => patch({ boxCutoffDate: e.target.value })}
+                />
+              </div>
+            </div>
+          </div>
+
           <Button
             variant="destructive"
             className="w-fit"
@@ -405,6 +505,21 @@ export default function ProductDetail({ params }: { params: Promise<{ id: string
           )}
         </SheetContent>
       </Sheet>
+
+      <Dialog open={yukiPreviewOpen} onOpenChange={setYukiPreviewOpen}>
+        <DialogContent className="max-h-[85vh] max-w-2xl overflow-y-auto sm:max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Preview Yuki brief {lastBrief ? `(v${(lastBrief.version || 0) + 1})` : "(v1)"}</DialogTitle>
+          </DialogHeader>
+          <pre className="whitespace-pre-wrap rounded-md border bg-muted/40 p-3 font-mono text-xs">{buildYukiBriefContent()}</pre>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setYukiPreviewOpen(false)}>
+              Cancel
+            </Button>
+            <Button onClick={sendYukiBrief}>Confirm &amp; send to Yuki</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

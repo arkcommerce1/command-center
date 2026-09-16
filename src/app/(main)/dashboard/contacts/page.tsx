@@ -22,6 +22,8 @@ export default function ContactsPage() {
   const [busy, setBusy] = React.useState(false);
   const [expanded, setExpanded] = React.useState<string | null>(null);
   const [noteDraft, setNoteDraft] = React.useState("");
+  const [whoIsThisId, setWhoIsThisId] = React.useState<string | null>(null);
+  const [companyDraft, setCompanyDraft] = React.useState("");
 
   const load = React.useCallback(async () => {
     const r = await fetch("/api/contacts");
@@ -61,6 +63,18 @@ export default function ContactsPage() {
       body: JSON.stringify({ notes: noteDraft }),
     });
     setExpanded(null);
+    load();
+  }
+
+  async function saveCompany(id: string) {
+    const company = companyDraft.trim();
+    setWhoIsThisId(null);
+    if (!company) return;
+    await fetch(`/api/contacts/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ company }),
+    });
     load();
   }
 
@@ -140,7 +154,38 @@ export default function ContactsPage() {
                 {sorted.map((r) => (
                   <React.Fragment key={r.id}>
                     <TableRow className="cursor-pointer" onClick={() => toggleExpand(r)}>
-                      <TableCell className="font-medium">{r.name}</TableCell>
+                      <TableCell className="font-medium">
+                        <div className="flex items-center gap-2">
+                          <span>{r.name}</span>
+                          {r.company === "Unknown" && whoIsThisId !== r.id && (
+                            <button
+                              className="rounded-full border px-2 py-0.5 text-[10px] font-normal text-muted-foreground hover:bg-muted"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setWhoIsThisId(r.id);
+                                setCompanyDraft("");
+                              }}
+                            >
+                              Who is this?
+                            </button>
+                          )}
+                          {whoIsThisId === r.id && (
+                            <Input
+                              autoFocus
+                              value={companyDraft}
+                              onChange={(e) => setCompanyDraft(e.target.value)}
+                              onClick={(e) => e.stopPropagation()}
+                              onBlur={() => saveCompany(r.id)}
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter") { e.preventDefault(); saveCompany(r.id); }
+                                if (e.key === "Escape") { e.preventDefault(); setWhoIsThisId(null); }
+                              }}
+                              placeholder="Company…"
+                              className="h-6 w-36 text-xs"
+                            />
+                          )}
+                        </div>
+                      </TableCell>
                       <TableCell className="text-muted-foreground">{r.role || "—"}</TableCell>
                       <TableCell>
                         {r.source === "factory" ? (

@@ -27,12 +27,37 @@ export interface Spec {
   sheetUrl: string; lastUpdate: string;
 }
 
+// --- Structured spec fields (versioned) ---
+export type SpecFieldSource = "listing" | "image" | "inferred";
+export type SpecFieldTag = "locked" | "flexible" | "open";
+
+export interface SpecField {
+  id: string;
+  label: string;
+  value: string;
+  source: SpecFieldSource;
+  tag: SpecFieldTag; // hard safety default is "locked" — never silently default elsewhere
+}
+
+export interface SpecVersion {
+  version: number;
+  fields: SpecField[];
+  createdAt: number;
+}
+
 export interface Costs {
   sellPrice: number; referralFeePct: number; fbaFee: number;
   dutiesPct: number; shippingUnit: number; ppcUnit: number; monthlySales: number;
 }
 
 export interface SkuRow { id: string; sku: string; size: string; pack: string; order: string }
+
+export interface YukiChecklist {
+  items: string; variants: string; quantities: string;
+  deliveryAddress: string; fee: string; dates: string;
+}
+
+export interface YukiBrief { version: number; sentAt: number; content: string }
 
 export interface Contact { id: string; name: string; role: string; company: string; wechat: string; whatsapp: string; email: string; notes: string; createdAt: number }
 
@@ -45,6 +70,13 @@ export interface Product {
   startDate: string; masterSku: string; skus: SkuRow[];
   specDone: boolean; sourcingStarted: boolean;
   spec: Spec; costs: Costs;
+  // New structured spec format. spec.notes remains as legacy fallback/text blob.
+  specFields: SpecField[];
+  specVersion: number; // 0 = no approved version yet
+  specVersions: SpecVersion[];
+  specUpdatedAt: number | null;
+  yukiChecklist: YukiChecklist; boxCutoffDate: string;
+  yukiBriefs: YukiBrief[];
 }
 
 export const STAGES: Stage[] = ["spec", "sourcing", "outreach", "sampling", "quotation"];
@@ -103,11 +135,38 @@ export function normP(p: Product): Product {
   (p as any).sourcingStarted = !!(p as any).sourcingStarted;
   p.spec = { ...blankSpec(), ...(p.spec || {}) };
   p.costs = { ...blankCosts(), ...(p.costs || {}) };
+  (p as any).specFields = Array.isArray((p as any).specFields)
+    ? (p as any).specFields.map((f: any) => normSpecField(f))
+    : [];
+  (p as any).specVersion = typeof (p as any).specVersion === "number" ? (p as any).specVersion : 0;
+  (p as any).specVersions = Array.isArray((p as any).specVersions) ? (p as any).specVersions : [];
+  p.specUpdatedAt = (p as any).specUpdatedAt ?? null;
+  p.yukiChecklist = { ...blankYukiChecklist(), ...((p as any).yukiChecklist || {}) };
+  p.boxCutoffDate = (p as any).boxCutoffDate || "";
+  p.yukiBriefs = Array.isArray((p as any).yukiBriefs) ? (p as any).yukiBriefs : [];
   return p;
+}
+
+// Hard safety default: any field missing/invalid tag data becomes "locked", never
+// silently anything else (e.g. "flexible" or "open").
+export function normSpecField(f: any): SpecField {
+  const tag: SpecFieldTag = f && (f.tag === "flexible" || f.tag === "open" || f.tag === "locked") ? f.tag : "locked";
+  const source: SpecFieldSource = f && (f.source === "image" || f.source === "inferred" || f.source === "listing") ? f.source : "inferred";
+  return {
+    id: String((f && f.id) || uid()),
+    label: String((f && f.label) || ""),
+    value: String((f && f.value) || ""),
+    source,
+    tag,
+  };
 }
 
 export function blankSpec(): Spec {
   return { skus: "", sizes: "", packSizes: "", materials: "", orderUnits: "", photos: "", notes: "", sheetUrl: "", lastUpdate: "" };
+}
+
+export function blankYukiChecklist(): YukiChecklist {
+  return { items: "", variants: "", quantities: "", deliveryAddress: "", fee: "", dates: "" };
 }
 
 export function blankCosts(): Costs {

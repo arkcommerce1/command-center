@@ -6,6 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 
 interface Product {
@@ -16,6 +17,13 @@ interface Product {
   started: boolean;
   stage: string;
   startDate: string;
+  stageUpdatedAt?: number;
+  specDone?: boolean;
+  specVersion?: number;
+  spec?: { sheetUrl?: string; lastUpdate?: string };
+  factoriesCount?: number;
+  furthestFactoryStage?: string | null;
+  furthestFactoryStageLabel?: string | null;
 }
 
 const STAGE_LABEL: Record<string, string> = {
@@ -24,15 +32,60 @@ const STAGE_LABEL: Record<string, string> = {
   live: "Live", dead: "Dead",
 };
 
+const NEXT_STEP: Record<string, string> = {
+  idea: "Start the product",
+  spec: "Finish the spec sheet",
+  sourcing: "Find factories (Yuki)",
+  outreach: "Reach out to factories",
+  sampling: "Get samples confirmed",
+  quotation: "Get quotes, negotiate",
+  live: "Monitor & optimize",
+  dead: "—",
+};
+
+function stageString(p: Product) {
+  return p.started ? STAGE_LABEL[p.stage] || p.stage : "Idea";
+}
+
+function specString(p: Product) {
+  if (typeof p.specVersion === "number" && p.specVersion > 0) return `Approved v${p.specVersion}`;
+  if (p.specDone || p.spec?.sheetUrl || p.spec?.lastUpdate) return "Draft";
+  return "None";
+}
+
+function lastActivity(p: Product) {
+  const ts = p.stageUpdatedAt;
+  if (!ts) return "—";
+  const d = new Date(ts);
+  return d.toLocaleDateString();
+}
+
+function nextStep(p: Product) {
+  if (!p.started) return NEXT_STEP.idea;
+  return NEXT_STEP[p.stage] || "—";
+}
+
+function factoriesString(p: Product) {
+  const count = p.factoriesCount ?? 0;
+  if (count === 0) return "0";
+  return `${count} · ${p.furthestFactoryStageLabel || "—"}`;
+}
+
 export default function ProductsPage() {
   const [products, setProducts] = React.useState<Product[]>([]);
+  const [loading, setLoading] = React.useState(true);
   const [name, setName] = React.useState("");
   const [asin, setAsin] = React.useState("");
   const [busy, setBusy] = React.useState(false);
 
   const load = React.useCallback(async () => {
-    const r = await fetch("/api/products");
-    if (r.ok) setProducts(await r.json());
+    setLoading(true);
+    try {
+      const r = await fetch("/api/products");
+      if (r.ok) setProducts(await r.json());
+    } finally {
+      setLoading(false);
+    }
   }, []);
   React.useEffect(() => {
     load();
@@ -112,48 +165,77 @@ export default function ProductsPage() {
               <TableRow>
                 <TableHead>Product</TableHead>
                 <TableHead>Stage</TableHead>
-                <TableHead>Start date</TableHead>
+                <TableHead>Factories</TableHead>
+                <TableHead>Spec</TableHead>
+                <TableHead>Samples</TableHead>
+                <TableHead>Last activity</TableHead>
+                <TableHead>Next step</TableHead>
                 <TableHead className="text-right">Actions</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {products.map((p) => (
-                <TableRow key={p.id}>
-                  <TableCell>
-                    <Link href={`/dashboard/products/${p.id}`} className="flex items-center gap-3">
-                      {p.imageUrl ? (
-                        // eslint-disable-next-line @next/next/no-img-element
-                        <img src={p.imageUrl} alt="" className="h-9 w-9 rounded-md border object-cover" />
-                      ) : (
-                        <div className="flex h-9 w-9 items-center justify-center rounded-md bg-muted text-muted-foreground">◈</div>
-                      )}
-                      <span>
-                        <span className="block font-medium">{p.name}</span>
-                        {p.asin && <span className="font-mono text-xs text-muted-foreground">{p.asin}</span>}
-                      </span>
-                    </Link>
-                  </TableCell>
-                  <TableCell>
-                    <Badge variant={p.started ? "default" : "outline"}>{p.started ? (STAGE_LABEL[p.stage] || p.stage) : "Idea"}</Badge>
-                  </TableCell>
-                  <TableCell className="text-muted-foreground">{p.startDate || "—"}</TableCell>
-                  <TableCell className="text-right">
-                    <div className="flex justify-end gap-1">
-                      {!p.started && (
-                        <Button size="sm" onClick={() => start(p.id)}>
-                          Start
+              {loading &&
+                Array.from({ length: 4 }).map((_, i) => (
+                  <TableRow key={`skeleton-${i}`}>
+                    <TableCell>
+                      <div className="flex items-center gap-3">
+                        <Skeleton className="h-9 w-9 rounded-md" />
+                        <Skeleton className="h-4 w-32" />
+                      </div>
+                    </TableCell>
+                    <TableCell><Skeleton className="h-5 w-16" /></TableCell>
+                    <TableCell><Skeleton className="h-4 w-20" /></TableCell>
+                    <TableCell><Skeleton className="h-4 w-16" /></TableCell>
+                    <TableCell><Skeleton className="h-4 w-8" /></TableCell>
+                    <TableCell><Skeleton className="h-4 w-20" /></TableCell>
+                    <TableCell><Skeleton className="h-4 w-28" /></TableCell>
+                    <TableCell className="text-right">
+                      <Skeleton className="ml-auto h-8 w-16" />
+                    </TableCell>
+                  </TableRow>
+                ))}
+              {!loading &&
+                products.map((p) => (
+                  <TableRow key={p.id}>
+                    <TableCell>
+                      <Link href={`/dashboard/products/${p.id}`} className="flex items-center gap-3">
+                        {p.imageUrl ? (
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img src={p.imageUrl} alt="" className="h-9 w-9 rounded-md border object-cover" />
+                        ) : (
+                          <div className="flex h-9 w-9 items-center justify-center rounded-md bg-muted text-muted-foreground">◈</div>
+                        )}
+                        <span>
+                          <span className="block font-medium">{p.name}</span>
+                          {p.asin && <span className="font-mono text-xs text-muted-foreground">{p.asin}</span>}
+                        </span>
+                      </Link>
+                    </TableCell>
+                    <TableCell>
+                      <Badge variant={p.started ? "default" : "outline"}>{stageString(p)}</Badge>
+                    </TableCell>
+                    <TableCell className="text-muted-foreground">{factoriesString(p)}</TableCell>
+                    <TableCell className="text-muted-foreground">{specString(p)}</TableCell>
+                    <TableCell className="text-muted-foreground">0</TableCell>
+                    <TableCell className="text-muted-foreground">{lastActivity(p)}</TableCell>
+                    <TableCell className="text-muted-foreground">{nextStep(p)}</TableCell>
+                    <TableCell className="text-right">
+                      <div className="flex justify-end gap-1">
+                        {!p.started && (
+                          <Button size="sm" onClick={() => start(p.id)}>
+                            Start
+                          </Button>
+                        )}
+                        <Button size="sm" variant="ghost" onClick={() => del(p.id, p.name)}>
+                          Delete
                         </Button>
-                      )}
-                      <Button size="sm" variant="ghost" onClick={() => del(p.id, p.name)}>
-                        Delete
-                      </Button>
-                    </div>
-                  </TableCell>
-                </TableRow>
-              ))}
-              {products.length === 0 && (
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              {!loading && products.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={4} className="text-center text-muted-foreground">
+                  <TableCell colSpan={8} className="text-center text-muted-foreground">
                     No products yet.
                   </TableCell>
                 </TableRow>
