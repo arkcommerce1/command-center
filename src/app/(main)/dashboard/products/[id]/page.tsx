@@ -459,7 +459,7 @@ export default function ProductDetail({ params }: { params: Promise<{ id: string
         </Card>
       )}
 
-      {/* Factories section — lists factory rows */}
+      {/* Factories section — lists factory rows with inline editing */}
       <Card id="factories-card" data-testid="factories-section">
         <CardHeader>
           <CardTitle>Factories · {fs.filter((f) => f.active).length}</CardTitle>
@@ -484,23 +484,82 @@ export default function ProductDetail({ params }: { params: Promise<{ id: string
                   onClick={() => setOpenId(f.id)}
                   data-testid={`factory-row-${f.id}`}
                 >
-                  <TableCell className="font-medium">{f.name}</TableCell>
-                  <TableCell>
-                    <StageBadge v={f.fstage || "intro"} map={FSTAGE_LABEL} />
+                  <TableCell className="font-medium p-1">
+                    <input
+                      defaultValue={f.name}
+                      onBlur={(e) => { if (e.target.value !== f.name) fpatch(f.id, { name: e.target.value }); }}
+                      onClick={(e) => { e.stopPropagation(); setOpenId(f.id); }}
+                      className="w-full rounded border-transparent bg-transparent hover:border-border focus:border-border px-1 py-0.5 text-sm"
+                    />
                   </TableCell>
-                  <TableCell className="hidden sm:table-cell">
-                    <StageBadge v={f.sampleStatus} />
+                  <TableCell className="p-1">
+                    <select
+                      defaultValue={(f as any).factoryStage || "spec_agreed"}
+                      onChange={(e) => fpatch(f.id, { factoryStage: e.target.value })}
+                      onClick={(e) => e.stopPropagation()}
+                      className="rounded-md border border-input bg-background px-1 py-1 text-xs"
+                    >
+                      <option value="spec_agreed">Spec agreed</option>
+                      <option value="sample_committed">Sample committed</option>
+                      <option value="passed_china">Passed China</option>
+                      <option value="arrived_ny">Arrived NY</option>
+                      <option value="sample_approved">Approved</option>
+                    </select>
                   </TableCell>
-                  <TableCell className="hidden sm:table-cell">
-                    <StageBadge v={f.quoteStatus} />
+                  <TableCell className="hidden sm:table-cell p-1">
+                    <select
+                      defaultValue={f.sampleStatus || "none"}
+                      onChange={(e) => fpatch(f.id, { sampleStatus: e.target.value })}
+                      onClick={(e) => e.stopPropagation()}
+                      className="rounded-md border border-input bg-background px-1 py-1 text-xs"
+                    >
+                      <option value="none">None</option>
+                      <option value="requested">Requested</option>
+                      <option value="shipped">Shipped</option>
+                      <option value="received">Received</option>
+                      <option value="qc">QC</option>
+                    </select>
                   </TableCell>
-                  <TableCell className="hidden text-xs text-muted-foreground md:table-cell">
-                    {f.lastContactAt
-                      ? new Date(f.lastContactAt).toLocaleDateString("en-US", { month: "numeric", day: "numeric" })
-                      : "—"}
+                  <TableCell className="hidden sm:table-cell p-1">
+                    <input
+                      type="text"
+                      defaultValue={(f.quotes && f.quotes.length > 0) ? `$${f.quotes[f.quotes.length-1].unitPrice}/u × ${f.quotes[f.quotes.length-1].qty}` : ""}
+                      onBlur={(e) => {
+                        if (e.target.value.trim() && e.target.value.startsWith("$")) {
+                          const m = e.target.value.match(/\$(\d+(?:\.\d+)?).*?(\d+)/);
+                          if (m) fpatch(f.id, { addQuote: { unitPrice: Number(m[1]), qty: Number(m[2]), notes: "" } });
+                        }
+                      }}
+                      onClick={(e) => e.stopPropagation()}
+                      placeholder="Quote"
+                      className="w-28 rounded border border-transparent bg-transparent hover:border-border focus:border-border px-1 py-0.5 text-xs"
+                    />
                   </TableCell>
-                  <TableCell className="max-w-[220px] truncate text-xs text-muted-foreground">
-                    {f.comments[0]?.text.slice(0, 60) || "—"}
+                  <TableCell className="hidden md:table-cell p-1">
+                    <div className="flex flex-col gap-0.5">
+                      {((f as any).people || []).map((person: any) => (
+                        <span key={person.id} className="text-xs text-muted-foreground">
+                          {person.name}{person.whatsapp ? ` (${person.whatsapp})` : ""}
+                        </span>
+                      ))}
+                      <button
+                        className="text-xs text-blue-600 hover:underline"
+                        onClick={(e) => { e.stopPropagation(); setOpenId(f.id); }}
+                      >
+                        + contact
+                      </button>
+                    </div>
+                  </TableCell>
+                  <TableCell className="max-w-[220px] p-1">
+                    <input
+                      defaultValue={f.comments && f.comments.length > 0 ? f.comments[0].text : ""}
+                      onBlur={(e) => {
+                        if (e.target.value.trim()) fpatch(f.id, { addComment: e.target.value.trim() });
+                      }}
+                      onClick={(e) => e.stopPropagation()}
+                      placeholder="Add note…"
+                      className="w-full rounded border border-transparent bg-transparent hover:border-border focus:border-border px-1 py-0.5 text-xs text-muted-foreground"
+                    />
                   </TableCell>
                 </TableRow>
               ))}
