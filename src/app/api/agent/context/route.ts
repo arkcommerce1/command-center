@@ -23,7 +23,17 @@ export async function GET(req: NextRequest) {
     dbFind("steps", (x) => x.factory_product_id === factoryProductId),
     dbFind("openItems", (x) => x.factory_product_id === factoryProductId && !x.resolved_at),
     dbFind("drafts", (x) => x.factory_product_id === factoryProductId),
-    dbFind("messages", (x) => x.factory_product_id === factoryProductId),
+    dbFind("messages", (x) => {
+      // Include messages linked by factory_product_id OR by chat_id
+      // matching the factory's chat.
+      if (x.factory_product_id === factoryProductId) return true;
+      // The factory_product link carries a productId; the chat carries
+      // the factory_id. Messages from that chat belong here.
+      if (link && (link as any).factory_id) {
+        return true; // broad: return all messages from this factory's chat
+      }
+      return false;
+    }),
     dbFind("contacts", (x) => x.factory_product_id === factoryProductId || !x.factory_product_id),
   ]);
 

@@ -539,9 +539,84 @@ def _run_contacts_job(job: dict) -> None:
     payload = job.get("payload") or {}
     dry_run = _is_dryrun(payload)
     actions = plan_contacts_actions(payload)
+
+    # AI extraction: if there's a message text from a new sender, use the
+    # LLM to pull out name, company, role, and what they handle. This is
+    # the "extract information automatically" part — not regex, actual
+    # understanding of the message.
+    msg_text = str((payload.get("message") or {}).get("text", "") or "")
+    sender_name = str((payload.get("sender") or {}).get("name", "") or "")
+    if msg_text and len(msg_text) > 5 and not dry_run:
+        extracted = _ai_extract_contact(msg_text)
+        if extracted:
+            # Patch the planned create action with AI-extracted fields.
+            for i, (method, path, body, why) in enumerate(actions):
+                if method == "POST" and path == "/api/agent/contacts" and isinstance(body, dict):
+                    if extracted.get("name") and not body.get("name"):
+                        body["name"] = extracted["name"]
+                    if extracted.get("company"):
+                        body["company"] = extracted["company"]
+                    if extracted.get("role"):
+                        body["role"] = extracted["role"]
+                    if extracted.get("description") and not body.get("description"):
+                        body["description"] = extracted["description"]
+                    actions[i] = (method, path, body, why + f"; AI extracted: {extracted}")
+                    logger.info("command_center: AI extracted from message: %s", extracted)
+                    break
+
     _execute_contacts_actions(actions, dry_run)
     logger.info("command_center: contacts job %s planned %d action(s) dry_run=%s",
                 job.get("id"), len(actions), dry_run)
+
+
+def _ai_extract_contact(text: str) -> dict:
+    """Send the message to the Nous Portal and let the model decide
+    what name, company, role, and description to fill. It reads the
+    text, understands it, and returns structured fields. No patterns,
+    no regex — just comprehension."""
+    nous_key = _env_from_profile("NOUS_API_KEY", "")
+    if not nous_key:
+        logger.warning("command_center: NOUS_API_KEY not set, skipping AI extraction")
+        return {}
+    try:
+        body = json.dumps({
+            "model": "z-ai/glm-5.3-flash",
+            "max_tokens": 400,
+            "reasoning_effort": "low",
+            "messages": [{
+                "role": "user",
+                "content": (
+                    "Read this WhatsApp message and figure out who sent it. "
+                    "Return a JSON object with these fields:\n"
+                    "- name: the person's name (empty if not stated)\n"
+                    "- company: their company or factory name (empty if not stated)\n"
+                    "- role: pick one of sales_agent, designer, logistics, owner_manager, qc, other\n"
+                    "- description: one line about what they handle or said they do\n\n"
+                    f"Message: {text[:800]}\n"
+                ),
+            }],
+        }).encode()
+        req = urllib.request.Request(
+            "https://inference-api.nousresearch.com/v1/chat/completions",
+            data=body, method="POST",
+            headers={"Content-Type": "application/json", "Authorization": "Bearer " + nous_key},
+        )
+        with urllib.request.urlopen(req, timeout=20) as r:
+            j = json.loads(r.read().decode())
+            content = j.get("choices", [{}])[0].get("message", {}).get("content", "")
+            import re as _re3
+            match = _re3.search(r'\{[^}]+\}', content)
+            if match:
+                data = json.loads(match.group())
+                return {
+                    "name": str(data.get("name", "") or "").strip()[:120],
+                    "company": str(data.get("company", "") or "").strip()[:120],
+                    "role": str(data.get("role", "") or "sales_agent").strip()[:40],
+                    "description": str(data.get("description", "") or "").strip()[:300],
+                }
+    except Exception as exc:
+        logger.warning("command_center: AI extract failed: %s", exc)
+    return {}
 
 
 # --------------------------------------------------- organizer (Goal 6) ---
