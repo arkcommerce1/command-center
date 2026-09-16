@@ -30,6 +30,8 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     (p as any).productStatus = body.productStatus;
   if (body.estimatedMonthlySales !== undefined)
     (p as any).estimatedMonthlySales = Math.max(0, Math.round(Number(body.estimatedMonthlySales)) || 0);
+  if (body.averagePricePerUnit !== undefined)
+    (p as any).averagePricePerUnit = Math.max(0, Number(body.averagePricePerUnit) || 0);
   if (Array.isArray(body.skus))
     (p as any).skus = body.skus.slice(0, 200).map((r: any) => ({
       id: String(r.id || Math.random().toString(36).slice(2, 9)),

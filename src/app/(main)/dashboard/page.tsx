@@ -42,7 +42,7 @@ export default function DashboardPage() {
   const active = all.filter((p) => p.productStatus === "active");
   const queue = all.filter((p) => p.productStatus === "queue");
   const completed = all.filter((p) => p.productStatus === "completed");
-  const activeSales = active.reduce((s, p) => s + (p.estimatedMonthlySales || 0), 0);
+  const activeSales = active.reduce((s, p) => s + (p.estimatedMonthlySales || 0) * (p.averagePricePerUnit || 0), 0);
 
   // Count open actionables (drafts with status pending)
   const [actionableCount, setActionableCount] = React.useState(0);
@@ -103,11 +103,11 @@ export default function DashboardPage() {
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">Estimated Monthly Sales Volume (Active)</CardTitle>
+            <CardTitle className="text-sm font-medium text-muted-foreground">Est. Monthly Revenue (Active)</CardTitle>
           </CardHeader>
           <CardContent>
-            <p className="text-3xl font-bold">{activeSales.toLocaleString()}</p>
-            <p className="text-xs text-muted-foreground mt-1">Active products only</p>
+            <p className="text-3xl font-bold">${activeSales.toLocaleString(undefined, { maximumFractionDigits: 0 })}</p>
+            <p className="text-xs text-muted-foreground mt-1">Active products only (price x volume)</p>
           </CardContent>
         </Card>
       </div>

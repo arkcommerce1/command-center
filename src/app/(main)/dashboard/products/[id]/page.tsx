@@ -207,11 +207,11 @@ export default function ProductDetail({ params }: { params: Promise<{ id: string
   // --- Stage ladder computations ---
   const specApproved = !!(p as any)?.specVersion && (p as any).specVersion > 0;
   const specFields: any[] = (p as any)?.specFields || [];
-  const specNeedsInput = specFields.filter((f: any) => !f.value || f.value.trim() === "").length;
+  const specNeedsInput = 0; // no longer shown
   const specVersionNum: number = (p as any)?.specVersion || 0;
   const specVersionsList: any[] = ((p as any)?.specVersions || []).slice().sort((a: any, b: any) => b.version - a.version);
   const viewingVer = viewVersion !== "current" ? specVersionsList.find((v: any) => String(v.version) === viewVersion) : null;
-  const displayVerFields: any[] = viewingVer ? (viewingVer as any).fields : specVersionsList[0]?.fields || [];
+  const displayVerFields: any[] = (viewingVer ? (viewingVer as any).fields : specVersionsList[0]?.fields || []).filter((f: any) => f.value && f.value !== "Needs input");
   const fbaSheetUrl = (p as any)?.fbaSheetUrl || null;
   const factoryCount = fs.length;
   const factoriesWithStep1 = fs.filter((f) => f.fstage && f.fstage !== "intro").length;
@@ -314,7 +314,17 @@ export default function ProductDetail({ params }: { params: Promise<{ id: string
             </select>
           </div>
           <div className="mt-1 flex items-center gap-2 text-sm text-muted-foreground">
-            <span>Est. monthly sales:</span>
+            <span>Avg price/unit:</span>
+            <span>$</span>
+            <input
+              type="number"
+              step="0.01"
+              value={(p as any).averagePricePerUnit || 0}
+              onChange={(e) => setP({ ...p, averagePricePerUnit: Number(e.target.value) } as any)}
+              onBlur={(e) => patch({ averagePricePerUnit: Number(e.target.value) })}
+              className="w-20 rounded-md border border-input bg-background px-2 py-1 text-xs"
+            />
+            <span className="ml-3">Est. monthly volume:</span>
             <input
               type="number"
               value={(p as any).estimatedMonthlySales || 0}
@@ -323,6 +333,11 @@ export default function ProductDetail({ params }: { params: Promise<{ id: string
               className="w-24 rounded-md border border-input bg-background px-2 py-1 text-xs"
             />
             <span>units</span>
+            {((p as any).averagePricePerUnit || 0) > 0 && ((p as any).estimatedMonthlySales || 0) > 0 && (
+              <span className="ml-3 text-xs font-medium text-foreground">
+                = ${(((p as any).averagePricePerUnit || 0) * ((p as any).estimatedMonthlySales || 0)).toLocaleString(undefined, { maximumFractionDigits: 0 })}/mo
+              </span>
+            )}
           </div>
         </div>
       </div>
@@ -483,10 +498,10 @@ export default function ProductDetail({ params }: { params: Promise<{ id: string
             <div className="rounded-lg border border-violet-200 bg-violet-50/50 p-3">
               <div className="mb-2 text-xs text-muted-foreground">🤖 AI spec draft — review:</div>
               <div className="flex flex-col divide-y rounded-md border bg-white">
-                {draftFields.map((f: any, i: number) => (
-                  <div key={f.id || i} className={`flex items-start gap-2 p-2 ${f.value === "Needs input" ? "bg-amber-50/50" : ""}`}>
-                    <div className="min-w-[120px] text-sm font-medium">{f.label || "—"}</div>
-                    <div className="flex-1 text-sm">{f.value || "Needs input"}</div>
+                {draftFields.filter((f: any) => f.value && f.value !== "Needs input").map((f: any, i: number) => (
+                  <div key={f.id || i} className="flex items-start gap-2 p-2">
+                    <div className="w-32 shrink-0 text-xs font-medium text-muted-foreground">{f.label}</div>
+                    <div className="flex-1 text-sm">{f.value}</div>
                     {f.tag && (
                       <Badge variant={f.tag === "locked" ? "default" : f.tag === "flexible" ? "secondary" : "outline"} className="text-[10px]">
                         {f.tag}
@@ -556,9 +571,9 @@ export default function ProductDetail({ params }: { params: Promise<{ id: string
                   <div className="p-3 text-sm text-muted-foreground">No fields in this version.</div>
                 ) : (
                   displayVerFields.map((f: any, i: number) => (
-                    <div key={f.id || i} className={`flex items-start gap-2 p-2 ${f.value === "Needs input" ? "bg-amber-50/50" : ""}`}>
+                    <div key={f.id || i} className="flex items-start gap-2 p-2">
                       <div className="min-w-[120px] text-sm font-medium">{f.label || "—"}</div>
-                      <div className="flex-1 text-sm">{f.value || "Needs input"}</div>
+                      <div className="flex-1 text-sm">{f.value}</div>
                       {f.tag && (
                         <Badge variant={f.tag === "locked" ? "default" : f.tag === "flexible" ? "secondary" : "outline"} className="text-[10px]">
                           {f.tag}

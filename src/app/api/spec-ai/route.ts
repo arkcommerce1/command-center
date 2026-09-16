@@ -28,7 +28,7 @@ You receive the Amazon listing data (title, bullets, description) and optionally
 You output a JSON object with a "fields" array. Each field has: id, label, value, source, tag.
 - "source" is one of: "listing" (from the Amazon listing), "image" (from a product photo), "inferred" (guessed/derived).
 - "tag" is one of: "locked" (must not change without explicit approval — the DEFAULT), "flexible" (factory/negotiation may vary it).
-- If you are unsure about a field's value, set value to "Needs input" and source to "inferred".
+- If you are unsure about a field's value, leave it OUT entirely. Do not write "Needs input" — simply skip that field.
 
 Output ALL fields in this exact order:
 1. Product name
@@ -44,7 +44,7 @@ Rules:
 - No marketing adjectives ("premium", "amazing") — factory specs are functional and terse.
 - Never include "Country of origin" — the factory IS the origin; this is nonsensical in a doc sent TO them.
 - Never include buyer-side info (our pricing, our SKUs, our branding, Amazon listing details).
-- Missing info: set value to "Needs input" rather than guessing wildly. But if you can reasonably infer from the listing, do so and mark source "inferred".
+- Missing info: leave the field OUT rather than guessing wildly. But if you can reasonably infer from the listing, do so and mark source "inferred".
 - Default tag is "locked". Use "flexible" only for fields where factory variation is normally acceptable (e.g. packaging details, color options).
 - Return ONLY the JSON object, no prose, no markdown fences.
 
