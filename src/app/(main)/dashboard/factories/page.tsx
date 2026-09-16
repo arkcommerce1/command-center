@@ -6,97 +6,158 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import {
+  formatSince,
+  hoursSince,
+  sinceColorClass,
+  sortBoardRows,
+  waitingRank,
+  type WaitingOnUI,
+} from "@/lib/cc/factory-board";
 
-interface FactoryProductLink {
+interface Proof {
+  step: number;
+  done: boolean;
+  messageId: string | null;
+  text: string | null;
+  translation: string | null;
+  sentAt: number | null;
+}
+
+interface BoardRow {
   id: string;
-  productId: string;
+  companyId: string;
   companyName: string;
+  productId: string;
   productName: string;
   currentLayer: number;
   statusLine?: string;
-  waitingOn?: "haim" | "factory" | string;
-  since: string;
+  waitingOn?: WaitingOnUI;
+  since: number | null;
   nextStep?: string;
-  agentStatus?: string;
-  dropped?: boolean;
-  droppedReason?: string;
+  dropped?: { layer: number; reason: string } | null;
+  productGuessed?: boolean;
+  archivedAt?: number | null;
+  pendingApprovals?: number;
 }
 
-type Filter = "all" | "waiting_me" | "stuck" | "dropped";
+function ProofDots({ linkId, currentLayer, dropped }: { linkId: string; currentLayer: number; dropped?: BoardRow["dropped"] }) {
+  const [proofs, setProofs] = React.useState<Proof[] | null>(null);
+  React.useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(`/api/agent/steps-proof?factoryProductId=${encodeURIComponent(linkId)}`);
+        if (!res.ok) return;
+        const data = await res.json();
+        if (!cancelled && Array.isArray(data.proofs)) setProofs(data.proofs);
+      } catch {
+        // Proofs stay layer-derived; dots still render.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [linkId]);
 
-function hoursSince(iso: string): number {
-  const t = new Date(iso).getTime();
-  if (Number.isNaN(t)) return 0;
-  return (Date.now() - t) / (1000 * 60 * 60);
-}
-
-function formatRelative(hours: number): string {
-  if (hours < 1) return `${Math.max(1, Math.round(hours * 60))}m`;
-  if (hours < 24) return `${Math.round(hours)}h`;
-  return `${Math.round(hours / 24)}d`;
-}
-
-function sinceColor(hours: number): string {
-  if (hours > 48) return "text-red-600 dark:text-red-400 font-medium";
-  if (hours > 24) return "text-amber-600 dark:text-amber-400 font-medium";
-  return "text-muted-foreground";
-}
-
-function LayerDots({ currentLayer, dropped }: { currentLayer: number; dropped?: boolean }) {
-  const dots = [1, 2, 3, 4, 5];
+  const proofByStep = new Map((proofs || []).map((p) => [p.step, p]));
   return (
     <div className="flex items-center gap-1">
-      {dots.map((layer) => {
-        if (dropped && layer === currentLayer) {
+      {[1, 2, 3, 4, 5].map((step) => {
+        if (dropped && step === currentLayer) {
           return (
             <span
-              key={layer}
-              title={`Dropped at layer ${layer}`}
+              key={step}
+              title={`Dropped at layer ${step}: ${dropped.reason || ""}`}
               className="flex h-3 w-3 items-center justify-center rounded-full bg-red-500 text-[8px] leading-none text-white"
             >
               ×
             </span>
           );
         }
-        const done = layer < currentLayer;
-        const inProgress = layer === currentLayer && !dropped;
-        return (
-          <span
-            key={layer}
-            title={`Layer ${layer}`}
-            className={
-              "h-3 w-3 rounded-full border " +
-              (done
-                ? "border-primary bg-primary"
-                : inProgress
-                  ? "border-primary bg-primary/40"
-                  : "border-muted-foreground/30 bg-transparent")
-            }
-          />
+        const done = step < currentLayer;
+        if (!done) {
+          const inProgress = step === currentLayer;
+          return (
+            <span
+              key={step}
+              title={inProgress ? `Step ${step} in progress` : `Step ${step} not started`}
+              className={
+                "h-3 w-3 rounded-full border " +
+                (inProgress ? "border-primary bg-primary/40" : "border-muted-foreground/30 bg-transparent")
+              }
+            />
+          );
+        }
+        const proof = proofByStep.get(step);
+        const title = proof?.text
+          ? `${proof.text}${proof.translation ? `\n— ${proof.translation}` : ""}${proof.sentAt ? `\n${new Date(proof.sentAt).toLocaleString()}` : ""}`
+          : `Step ${step} done${proof === undefined ? " (proof loading…)" : " (no proof message)"}`;
+        const dot = (
+          <span key={step} title={title} className="h-3 w-3 rounded-full border border-primary bg-primary" />
+        );
+        return proof?.messageId ? (
+          <a
+            key={step}
+            href={`/dashboard/messages?message=${encodeURIComponent(proof.messageId)}`}
+            onClick={(e) => e.stopPropagation()}
+            title={title}
+            aria-label={`Step ${step} proof`}
+          >
+            {dot}
+          </a>
+        ) : (
+          dot
         );
       })}
     </div>
   );
 }
 
+function WaitingBadge({ waitingOn }: { waitingOn: WaitingOnUI }) {
+  if (!waitingOn || waitingOn === "none") return <span className="text-muted-foreground">—</span>;
+  const rank = waitingRank(waitingOn);
+  return <Badge variant={rank === 0 ? "destructive" : rank === 1 ? "secondary" : "outline"}>{waitingOn}</Badge>;
+}
+
+function SkeletonRows() {
+  return (
+    <>
+      {[0, 1, 2].map((i) => (
+        <TableRow key={i}>
+          <TableCell colSpan={8}>
+            <div className="h-5 w-full animate-pulse rounded bg-muted" />
+          </TableCell>
+        </TableRow>
+      ))}
+    </>
+  );
+}
+
 export default function FactoriesPage() {
   const router = useRouter();
-  const [links, setLinks] = React.useState<FactoryProductLink[]>([]);
+  const [rows, setRows] = React.useState<BoardRow[]>([]);
+  const [products, setProducts] = React.useState<{ id: string; name: string }[]>([]);
   const [loading, setLoading] = React.useState(true);
   const [errored, setErrored] = React.useState(false);
-  const [filter, setFilter] = React.useState<Filter>("all");
+  const [productFilter, setProductFilter] = React.useState<string>("all");
+  const [showArchived, setShowArchived] = React.useState(false);
 
   React.useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
-        const res = await fetch("/api/factory-product-links");
-        if (!res.ok) throw new Error("bad response");
-        const data = await res.json();
-        if (!cancelled) setLinks(Array.isArray(data) ? data : []);
+        const [r1, r2] = await Promise.all([fetch("/api/factory-products"), fetch("/api/products")]);
+        if (!r1.ok) throw new Error("bad response");
+        const links = await r1.json();
+        const prods = r2.ok ? await r2.json() : [];
+        if (!cancelled) {
+          setRows(Array.isArray(links) ? links : []);
+          setProducts(Array.isArray(prods) ? prods : []);
+        }
       } catch {
         if (!cancelled) {
-          setLinks([]);
+          setRows([]);
           setErrored(true);
         }
       } finally {
@@ -108,105 +169,130 @@ export default function FactoriesPage() {
     };
   }, []);
 
-  const filtered = links.filter((l) => {
-    if (filter === "waiting_me") return l.waitingOn === "haim";
-    if (filter === "stuck") return hoursSince(l.since) > 24 && !l.dropped;
-    if (filter === "dropped") return !!l.dropped;
-    return true;
-  });
-
-  const sorted = [...filtered].sort((a, b) => {
-    const aWaiting = a.waitingOn === "haim" ? 0 : 1;
-    const bWaiting = b.waitingOn === "haim" ? 0 : 1;
-    if (aWaiting !== bWaiting) return aWaiting - bWaiting;
-    return new Date(a.since).getTime() - new Date(b.since).getTime();
-  });
+  const visible = sortBoardRows(
+    rows.filter((r) => {
+      if (!showArchived && r.archivedAt) return false;
+      if (productFilter !== "all" && r.productId !== productFilter) return false;
+      return true;
+    }),
+  );
 
   return (
     <div className="flex flex-col gap-4">
       <div>
         <h2 className="text-3xl tracking-tight">Factories</h2>
-        <p className="text-muted-foreground">All factory-product relationships and where they stand.</p>
+        <p className="text-muted-foreground">One row per factory and product, filled in from the chats.</p>
       </div>
 
-      <div className="flex flex-wrap gap-2">
-        <Button size="sm" variant={filter === "all" ? "default" : "outline"} onClick={() => setFilter("all")}>
-          All
-        </Button>
-        <Button
-          size="sm"
-          variant={filter === "waiting_me" ? "default" : "outline"}
-          onClick={() => setFilter("waiting_me")}
+      <div className="flex flex-wrap items-center gap-2">
+        <label className="text-sm text-muted-foreground" htmlFor="product-filter">
+          Product
+        </label>
+        <select
+          id="product-filter"
+          className="rounded-md border bg-background px-2 py-1 text-sm"
+          value={productFilter}
+          onChange={(e) => setProductFilter(e.target.value)}
         >
-          Waiting on me
-        </Button>
-        <Button size="sm" variant={filter === "stuck" ? "default" : "outline"} onClick={() => setFilter("stuck")}>
-          Stuck (24h+)
-        </Button>
-        <Button
-          size="sm"
-          variant={filter === "dropped" ? "default" : "outline"}
-          onClick={() => setFilter("dropped")}
-        >
-          Dropped
+          <option value="all">All products</option>
+          {products.map((p) => (
+            <option key={p.id} value={p.id}>
+              {p.name}
+            </option>
+          ))}
+        </select>
+        <Button size="sm" variant={showArchived ? "default" : "outline"} onClick={() => setShowArchived((v) => !v)}>
+          {showArchived ? "Hide archived" : "Show archived"}
         </Button>
       </div>
 
       <Card>
         <CardHeader>
           <CardTitle>
-            Board · {sorted.length}
+            Board · {visible.length}
             {errored && <span className="ml-2 text-xs font-normal text-muted-foreground">(offline)</span>}
           </CardTitle>
         </CardHeader>
         <CardContent>
-          {loading && <p className="text-sm text-muted-foreground">Loading...</p>}
-          {!loading && sorted.length === 0 && (
-            <p className="text-sm text-muted-foreground">
-              {errored ? "Could not load factory links." : "No factory-product links match this filter."}
-            </p>
-          )}
-          {!loading && sorted.length > 0 && (
+          {loading && (
             <Table>
               <TableHeader>
                 <TableRow>
                   <TableHead>Factory</TableHead>
                   <TableHead>Product</TableHead>
-                  <TableHead>Layers</TableHead>
+                  <TableHead>Steps</TableHead>
                   <TableHead>Status</TableHead>
                   <TableHead>Waiting on</TableHead>
                   <TableHead>Since</TableHead>
                   <TableHead>Next step</TableHead>
-                  <TableHead>Agent status</TableHead>
+                  <TableHead>To approve</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {sorted.map((l) => {
+                <SkeletonRows />
+              </TableBody>
+            </Table>
+          )}
+          {!loading && visible.length === 0 && (
+            <p className="text-sm text-muted-foreground">
+              {errored
+                ? "Could not load factory rows."
+                : rows.length === 0
+                  ? "No factories yet. When Donna is added to a factory chat, rows appear here automatically."
+                  : "No factory rows match this filter."}
+            </p>
+          )}
+          {!loading && visible.length > 0 && (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Factory</TableHead>
+                  <TableHead>Product</TableHead>
+                  <TableHead>Steps</TableHead>
+                  <TableHead>Status</TableHead>
+                  <TableHead>Waiting on</TableHead>
+                  <TableHead>Since</TableHead>
+                  <TableHead>Next step</TableHead>
+                  <TableHead>To approve</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {visible.map((l) => {
                   const hrs = hoursSince(l.since);
                   return (
                     <TableRow
                       key={l.id}
                       className="cursor-pointer"
-                      onClick={() => router.push(`/dashboard/products/${l.productId}`)}
+                      onClick={() => router.push(`/dashboard/factories/${encodeURIComponent(l.companyId)}`)}
                     >
-                      <TableCell className="font-medium">{l.companyName}</TableCell>
-                      <TableCell>{l.productName}</TableCell>
+                      <TableCell className="font-medium">
+                        {l.companyName}
+                        {l.archivedAt && (
+                          <Badge variant="outline" className="ml-2">
+                            archived
+                          </Badge>
+                        )}
+                      </TableCell>
                       <TableCell>
-                        <LayerDots currentLayer={l.currentLayer} dropped={l.dropped} />
+                        {l.productName}
+                        {l.productGuessed && (
+                          <Badge variant="outline" className="ml-2" title="Linked by the organizer's best guess">
+                            guessed
+                          </Badge>
+                        )}
+                      </TableCell>
+                      <TableCell>
+                        <ProofDots linkId={l.id} currentLayer={l.currentLayer} dropped={l.dropped} />
                       </TableCell>
                       <TableCell className="max-w-[220px] truncate text-sm text-muted-foreground">
                         {l.statusLine || "—"}
                       </TableCell>
                       <TableCell>
-                        {l.waitingOn ? (
-                          <Badge variant={l.waitingOn === "haim" ? "destructive" : "outline"}>{l.waitingOn}</Badge>
-                        ) : (
-                          "—"
-                        )}
+                        <WaitingBadge waitingOn={l.waitingOn ?? null} />
                       </TableCell>
-                      <TableCell className={sinceColor(hrs)}>{formatRelative(hrs)}</TableCell>
+                      <TableCell className={sinceColorClass(hrs)}>{formatSince(hrs)}</TableCell>
                       <TableCell className="max-w-[200px] truncate text-sm">{l.nextStep || "—"}</TableCell>
-                      <TableCell className="text-sm text-muted-foreground">{l.agentStatus || "—"}</TableCell>
+                      <TableCell className="text-sm">{l.pendingApprovals ? l.pendingApprovals : "—"}</TableCell>
                     </TableRow>
                   );
                 })}

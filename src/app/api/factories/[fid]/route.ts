@@ -20,6 +20,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ fi
   for (const k of ["name", "contact", "channel", "sampleStatus", "quoteStatus", "fstage"] as const)
     if (b[k] !== undefined) (f as any)[k] = b[k];
   if (b.active !== undefined) f.active = !!b.active;
+  if (b.canShareVolumes !== undefined) (f as any).canShareVolumes = !!b.canShareVolumes;
   if (b.lastContactAt !== undefined) f.lastContactAt = b.lastContactAt;
   if (b.sampleRequestedAt !== undefined) f.sampleRequestedAt = b.sampleRequestedAt;
   if (b.sampleShippedAt !== undefined) f.sampleShippedAt = b.sampleShippedAt;

@@ -339,3 +339,92 @@ Buttons/controls (from reading `src/app/(main)/dashboard/products/[id]/page.tsx`
 6. Yuki's WhatsApp number from Haim, then seed + verify.
 7. Deploy-time follow-ups: ingest sender snapshot in contacts payloads;
    `channels` on PATCH; `company` on POST contacts.
+
+- **Goal 6 factory status UI (Sep 16, 2026).** Board rows stay on legacy
+  `factory-product-links` (currentLayer/statusLine/waitingOn/since/nextStep)
+  because the organizer (Goal 6 remainder) hasn't populated §1.2
+  `factoryProducts` yet (store.json: 0 rows) and agent `steps`/`statusUpdates`
+  are empty; §1.2 flags (productGuessed/archivedAt) overlay by link id when
+  present. New read-only dashboard helpers (no agentAuth — browsers carry no
+  bearer token; same precedent as GET /api/messages, login-gated by proxy):
+  GET /api/agent/steps-proof?factoryProductId= (5 proofs with message text +
+  timestamp, guessed/archived flags, pending-approvals = open agent questions
+  + pending agent drafts), GET /api/factory-products (enriched board rows),
+  GET /api/factories/[fid]/summary (per-product blocks, adjustments, outbound,
+  quotes, samples, contacts, timeline, canShareVolumes). Summary [id] is the
+  link companyId (factory grouping key); a link id also resolves. Added
+  Factory.canShareVolumes (default falsy via normF passthrough) + PATCH
+  support. Samples section is list-only (Goal 10 builds tabs). Product-page
+  factory rows NOT relinked: legacy companyId is opaque and can't be mapped
+  reliably to summary ids yet — organizer will own the mapping.
+
+## 9. Goal 6 organizer processor (Sep 16, 2026)
+
+- **No-LLM organize path.** Poller claims `organize` jobs too
+  (`HANDLED_JOB_TYPES = {"cc-echo", "contacts", "organize"}`) and buffers
+  them per chat (`_organize_pending`, newest job resets a 120 s quiet
+  period); a `cc-organize` sweeper thread processes a chat only after 2
+  min quiet, then marks each job done/failed **with its lease token**
+  (`_finish_job`). Skill `hermes/skills/cc-organizer/SKILL.md` (§1.5
+  frontmatter + When to Use/Procedure/Pitfalls/Verification) documents the
+  same procedure. Installed in-repo, in the VPS plugin copy (content
+  identical modulo CRLF/LF, md5-verified after CR strip), and in the VPS
+  skills dir (`/home/openclaw/command-center/hermes/skills/cc-organizer/`).
+  Only the donna-factory gateway was restarted (PID 2693321 → 2698048 via
+  `XDG_RUNTIME_DIR=/run/user/1000 systemctl --user restart` as openclaw);
+  `donna` (PID 1893255) and all others untouched. New `__pycache__`
+  compiled at boot (17:25:29) proves the new code loaded; the historical
+  `command_center: registered` line appears nowhere in gateway.log on any
+  boot, so pyc + active-service is the registration evidence.
+- **Rules encoded (pure planner `plan_organize_actions`).** Per-message
+  product link (single→direct, multi→name-word hits, ambiguous→
+  most-recent-active); non-English→`translation:""`, detected `lang`
+  (`zh` on CJK), low-importance `question` card, never a guessed
+  translation; steps only on proof regexes (1: real reply ≥12 chars or
+  product word; 2: can-make-it; 3: spec-confirm with zero open changes;
+  4: sample-commit; 5: tracking regex UPU/SF/YT/long-token) with the
+  server's ack list pre-filtered (ok/👍/emoji/好的/收到/稍等/greetings
+  yield zero step calls); status `waiting_on` haim-if-draft-or-card else
+  factory with first-undone-step as next; quotes→Haim-only + number-free
+  draft; change proposals→adjustment (flexible/locked from payload spec,
+  else pending + we_owe item); tracking→step 5 + china_to_yiwu shipment +
+  sample_tracking resolve; fee→high fee question, never agree; §3.8 reply
+  table drives canned `POST /api/agent/drafts` bubbles (Goal 8 drafter
+  owns final wording). Dry-run (`dry_run` flag or `CC_ORGANIZE_DRYRUN=1`)
+  builds bodies with zero HTTP calls — including skipping the job done
+  ack. Every action logs a `command_center: organize ...` gateway line.
+- **Interpretation choices.** "waiting_on per section 5 order" read as
+  priority haim > factory (yuki/carrier/none belong to later sample-flow
+  goals); "section 9 table" read as the §3.8 reply table; `product_guessed`
+  has no Agent API field so it is encoded in the status `note`
+  (`product_guessed:<fp>`) + gateway log.
+- **Server/schema gaps (deploy-time follow-ups).** No Agent API endpoint
+  creates factories or factory_products, so new-group setup is log-only
+  (name logged, opener deferred) until one exists; no endpoint lists
+  messages by chat, so ingest's minimal `{chat_id}` organize payloads
+  take the log-only path until ingest embeds the message/product snapshot
+  the planner documents; questions kinds have no `spec_gap` (untranslated
+  uses `question` + `body.issue`); `PATCH status` covers waiting_since
+  server-side. Pre-existing, untouched: `_run_job` marks cc-echo/contacts
+  done with `{}` while the route requires `lease_token` (organize path
+  sends it correctly).
+- **Verification (zero production writes).** `/tmp/sim_organize.py` on VPS
+  against the installed file, dry-run: 23/23 (minimal log-only,
+  single/multi/ambiguous links + guessed flag, zh empty-translation +
+  card, 7 ack variants zero steps, steps 2/4/5 + shipment + resolve,
+  quote + number-free draft, fee-high card, new-group log-only, status
+  haim/next, per-chat buffer + deadline reset + sweeper drain, zero HTTP
+  calls). Simulation caught and fixed one bug (dry-run done-ack firing).
+  Nothing committed/pushed/deployed.
+
+## Still needs live traffic (additions)
+
+8. First real multi-message burst in an allowlisted group → one
+   `organize batch for chat ... quiet, processing` line after ~2 min
+   quiet, plus annotate/steps/status/draft lines; confirm single
+   processing per burst.
+9. First real `organize` job with the current minimal `{chat_id}` payload
+   → `organize/minimal-payload` log-only line (expected until ingest
+   embeds snapshots); confirm no poison-loop.
+10. Watch for recurrence of the transient `POST /api/agent/jobs/claim
+    HTTP 500` (seen 16:11:35 UTC pre-restart).

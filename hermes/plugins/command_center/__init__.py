@@ -5,7 +5,8 @@ SPEC docs/SPEC.md §1.4. Six parts:
     /api/agent/ingest and dropped from normal dispatch (return {"action":"skip"}),
     so no agent session ever auto-replies in a factory chat.
  2. job runner: polls /api/agent/jobs/claim every 5s. Handles cc-echo jobs
-    inline (other job types unlock with Goals 3-8 and are left queued).
+    inline, contacts + organize deterministically in code (no LLM).
+    Organize jobs buffer per chat until 2 min quiet, then process.
  3. outbox sender: polls /api/agent/outbox/claim + /api/agent/notifications/claim
     every 10s; sends bubbles 2-4s apart through the local WhatsApp bridge.
  4. tick: POST /api/agent/tick every 15 min.
@@ -33,9 +34,19 @@ logger = logging.getLogger(__name__)
 BASE_URL = "https://command-center-review-tau.vercel.app"
 BRIDGE_URL = "http://127.0.0.1:3001"
 
-# Job types this runner executes inline. contacts (Goal 3) runs
-# deterministically in code (see cc-contacts skill): no LLM involved.
-HANDLED_JOB_TYPES = {"cc-echo", "contacts"}
+# Job types this runner executes inline. contacts (Goal 3) and organize
+# (Goal 6) run deterministically in code (see cc-contacts / cc-organizer
+# skills): no LLM involved.
+HANDLED_JOB_TYPES = {"cc-echo", "contacts", "organize"}
+
+# Set to "1" to build organize request bodies without performing any
+# API call (used by fixture simulations; also honored per-payload via
+# payload["dry_run"]).
+ORGANIZE_DRYRUN_ENV = "CC_ORGANIZE_DRYRUN"
+
+# Chats are organized only after this many seconds with no new organize
+# job queued for them (SPEC §1.4: batch per chat, 2-minute quiet period).
+ORGANIZE_QUIET_S = 120
 
 # Set to "1" to build contacts request bodies without performing any
 # API call (used by fixture simulations; also honored per-payload via
@@ -499,6 +510,486 @@ def _run_contacts_job(job: dict) -> None:
                 job.get("id"), len(actions), dry_run)
 
 
+# --------------------------------------------------- organizer (Goal 6) ---
+# Deterministic organizer processor (cc-organizer skill). No LLM: pure
+# regex + substring matching, then plain Agent API calls. Every
+# automatic action is logged; dry-run builds bodies without calling.
+
+_ACK_ONLY = {
+    "ok", "okay", "okay thanks", "noted", "noted thanks", "received",
+    "thanks", "thank you", "got it", "please wait", "one moment",
+    "好的", "收到", "稍等",
+}
+
+_GREET_ONLY = _re.compile(
+    r"^(hi|hello|hey|yo|good\s+(morning|afternoon|evening)|你好|您好)"
+    r"[!.,\s]*$", _re.I)
+
+_STEP2_PAT = _re.compile(
+    r"(we\s+can\s+(make|manufacture|produce|do)|yes[,\s]+we\s+can\s+"
+    r"(make|do|produce)|(can\s+be\s+(made|produced|manufactured))|"
+    r"(able\s+to\s+(make|produce))|可以(做|生产|做))", _re.I)
+
+_STEP3_PAT = _re.compile(
+    r"((confirm|agree|approve|accept)[^.]{0,40}spec|spec[^.]{0,40}"
+    r"(confirm|ok|okay|agree|approve|accept|fine|good|correct|match)|"
+    r"(确认|同意)[^.]{0,20}spec|spec[^.]{0,20}(没问题|可以))", _re.I)
+
+_STEP4_PAT = _re.compile(
+    r"((we(\'ll| will)\s+send|will\s+send|send|ship|arrange)[^.]{0,40}"
+    r"sample|sample[^.]{0,40}(send|ship|arrange)|寄样|发样品|"
+    r"样品.{0,10}寄出)", _re.I)
+
+_TRACKING_PAT = _re.compile(
+    r"\b([A-Z]{2}\d{9}[A-Z]{2}|SF\d{10,}|YT\d{10,}|\d{12,}|"
+    r"[A-Z0-9]{10,20})\b")
+
+_PRICE_PAT = _re.compile(
+    r"(\$|US\$|USD|¥|RMB|CNY|€)\s*\d|"
+    r"\d\s*(\$|US\$|USD|¥|RMB|CNY|yuan|dollars?|€)|"
+    r"\b(price|pricing|cost|per unit|per piece|/pc\b|/pcs\b|unit price|"
+    r"EXW|FOB|CIF|DDP|MOQ)\b.{0,30}\d|\d.{0,30}"
+    r"\b(price|pricing|cost|per unit|per piece|unit price)\b", _re.I)
+
+_FEE_PAT = _re.compile(
+    r"(sample\s+fee|fee\s+for.{0,20}sample|pay.{0,20}sample|"
+    r"样品费|费用.{0,10}样品|样品.{0,10}费用)", _re.I)
+
+_CHANGE_PAT = _re.compile(
+    r"\b(change|adjust|modify|revise|instead of|can we make it|"
+    r"what if we|could you make)\b|改|调整|换成", _re.I)
+
+_QUESTION_HINT = _re.compile(
+    r"\?|？|\b(what|when|how|can you|could you|do you|is it|are you|"
+    r"吗|呢|什么|怎么|多少|可以吗)\b", _re.I)
+
+_MOQ_PAT = _re.compile(
+    r"\b(MOQ|minimum order|order quantity|bulk order|trial order|"
+    r"payment terms?|deposit|T/T|paypal|alipay)\b", _re.I)
+
+_CJK_PAT = _re.compile(r"[\u4e00-\u9fff]")
+
+
+def _strip_punct(s: str) -> str:
+    return _re.sub(r"[.!…。,，、！？?~\-\–—_()\[\]{}'\"“”‘’\s]+",
+                   " ", s.lower()).strip()
+
+
+def is_ack_only(text: str) -> bool:
+    """True for messages that only acknowledge (never step proof)."""
+    t = (text or "").strip()
+    if not t:
+        return True
+    if not _re.search(r"[a-z0-9\u4e00-\u9fff\u3040-\u30ff\uac00-\ud7af]",
+                       t, _re.I):
+        return True  # emoji / thumbs-up only
+    return _strip_punct(t) in _ACK_ONLY
+
+
+def detect_lang(text: str) -> str:
+    if _CJK_PAT.search(text or ""):
+        return "zh"
+    return ""
+
+
+def link_product(text: str, products: list):
+    """Return (factory_product_id, guessed). Single product links
+    directly; multi-product matches product-name words; ties and fully
+    ambiguous texts fall back to most-recently-active with guessed=True."""
+    if not products:
+        return "", False
+    if len(products) == 1:
+        return str(products[0].get("factory_product_id", "")), False
+    low = (text or "").lower()
+    scored = []
+    for p in products:
+        words = [w for w in _re.split(r"[^a-z0-9]+",
+                                      str(p.get("name", "")).lower())
+                 if len(w) > 2]
+        hits = sum(1 for w in words if w and w in low)
+        scored.append((hits, str(p.get("last_active_at", "")),
+                       str(p.get("factory_product_id", ""))))
+    scored.sort(key=lambda s: (s[0], s[1]), reverse=True)
+    if scored[0][0] > 0 and (len(scored) < 2
+                             or scored[0][0] > scored[1][0]
+                             or scored[0][1] >= scored[1][1]):
+        # Clear winner, or tied on hits but this one is most recent.
+        tied = len(scored) > 1 and scored[0][0] == scored[1][0]
+        return scored[0][2], tied
+    most_recent = sorted(products,
+                         key=lambda p: str(p.get("last_active_at", "")),
+                         reverse=True)[0]
+    return str(most_recent.get("factory_product_id", "")), True
+
+
+def _field_guess(text: str) -> str:
+    low = (text or "").lower()
+    for key in ("dimension", "size", "weight", "material", "cotton",
+                "color", "colour", "length", "width", "height",
+                "thickness", "diameter", "package", "packaging",
+                "certificate", "logo", "print"):
+        if key in low:
+            return key
+    return "unspecified"
+
+
+def plan_organize_actions(payload: dict) -> list:
+    """Pure planner: payload -> [(method, path, body, why), ...].
+
+    Rich payload blocks: chat{id,name,factory_id}, products
+    [{factory_product_id,product_id,name,last_active_at}], messages
+    [{id,text,direction,sender_type,sent_at}] oldest-first, plus optional
+    spec{fields:[{key,tag}]}, open_change_counts{fp:n}, open_items[{id,
+    kind}]. Minimal payloads ({chat_id} only, what ingest queues today)
+    yield a single ("log-only", ...) entry.
+    """
+    p = payload or {}
+    chat = p.get("chat") or {}
+    if not chat and set(p.keys()) <= {"chat_id", "dry_run"}:
+        return [("log-only", "organize/minimal-payload", {},
+                 "minimal payload (chat_id only, no message snapshot): "
+                 "cannot organize without a lookup endpoint; needs ingest "
+                 "enrichment (see STACK)")]
+    chat_id = str(chat.get("id", "") or p.get("chat_id", ""))
+    chat_name = str(chat.get("name", "") or "")
+    factory_id = str(chat.get("factory_id", "") or "")
+    products = p.get("products") or []
+    messages = sorted(p.get("messages") or [],
+                      key=lambda m: m.get("sent_at", 0))
+    spec_tags = {f.get("key", ""): str(f.get("tag", "")).lower()
+                 for f in ((p.get("spec") or {}).get("fields") or [])}
+    change_counts = p.get("open_change_counts") or {}
+    open_items = p.get("open_items") or []
+    actions: list = []
+
+    if not factory_id:
+        actions.append(
+            ("log-only", "organize/new-group", {},
+             f"new group '{chat_name or chat_id}': no factory_id — "
+             "no Agent API endpoint creates factories/factory_products, "
+             "so setup + opener draft are deferred (see STACK)"))
+        return actions
+
+    touched: dict = {}  # fp_id -> per-product batch state
+    track_open = {i.get("id", "") for i in open_items
+                  if i.get("kind") == "sample_tracking"}
+
+    def state(fp: str) -> dict:
+        return touched.setdefault(
+            fp, {"draft": "", "draft_why": "", "haim": False,
+                 "guessed": False, "steps": []})
+
+    for m in messages:
+        mid = str(m.get("id", ""))
+        text = str(m.get("text", "") or "")
+        direction = str(m.get("direction", "in"))
+        sender = str(m.get("sender_type", "factory"))
+        inbound_factory = direction == "in" and sender == "factory"
+        fp, guessed = link_product(text, products)
+        if not fp:
+            actions.append(("log-only", "organize/no-product", {},
+                            f"message {mid}: no product to link, skipped"))
+            continue
+        st = state(fp)
+        if guessed:
+            st["guessed"] = True
+        lang = detect_lang(text)
+        non_english = bool(lang) and direction == "in"
+        actions.append(
+            ("POST", f"/api/agent/messages/{mid}/annotate",
+             {"factory_product_id": fp,
+              "translation": "",
+              "lang": lang},
+             f"link message {mid} to {fp}"
+             + (" (guessed)" if guessed else "")))
+        if non_english:
+            actions.append(
+                ("POST", "/api/agent/questions",
+                 {"factory_product_id": fp, "kind": "question",
+                  "body": {"issue": "untranslated_text",
+                           "message_id": mid, "lang": lang},
+                  "importance": "low"},
+                 f"message {mid} is non-English: no guessed translation, "
+                 "question card for Haim"))
+            st["haim"] = True
+        if not inbound_factory:
+            continue
+        ack = is_ack_only(text)
+        greeting = bool(_GREET_ONLY.match(text.strip()))
+        if ack or greeting:
+            continue  # log only: never a step, never a draft
+        # --- steps (proof patterns only) ---
+        if len(text) >= 12 or any(
+                w in text.lower()
+                for prod in products
+                for w in str(prod.get("name", "")).lower().split()
+                if len(w) > 3):
+            actions.append(
+                ("POST", "/api/agent/steps",
+                 {"factory_product_id": fp, "step": 1,
+                  "proof_message_id": mid},
+                 f"step 1 proof: real reply about product ({mid})"))
+            st["steps"].append(1)
+        if _STEP2_PAT.search(text):
+            actions.append(
+                ("POST", "/api/agent/steps",
+                 {"factory_product_id": fp, "step": 2,
+                  "proof_message_id": mid},
+                 f"step 2 proof: can-make-it ({mid})"))
+            st["steps"].append(2)
+        if _STEP3_PAT.search(text) and int(change_counts.get(fp, 0)) == 0:
+            actions.append(
+                ("POST", "/api/agent/steps",
+                 {"factory_product_id": fp, "step": 3,
+                  "proof_message_id": mid},
+                 f"step 3 proof: spec confirmed, no open changes ({mid})"))
+            st["steps"].append(3)
+        if _STEP4_PAT.search(text):
+            actions.append(
+                ("POST", "/api/agent/steps",
+                 {"factory_product_id": fp, "step": 4,
+                  "proof_message_id": mid},
+                 f"step 4 proof: sample committed ({mid})"))
+            st["steps"].append(4)
+            if not any(i.get("kind") == "sample_tracking"
+                       for i in open_items):
+                actions.append(
+                    ("POST", "/api/agent/open-items",
+                     {"factory_product_id": fp, "direction": "they_owe",
+                      "kind": "sample_tracking",
+                      "summary": "Factory committed sample, "
+                                 "awaiting tracking number",
+                      "opened_message_id": mid},
+                     f"sample_tracking opened for {fp}"))
+        for trk in _TRACKING_PAT.findall(text):
+            actions.append(
+                ("POST", "/api/agent/steps",
+                 {"factory_product_id": fp, "step": 5,
+                  "proof_message_id": mid},
+                 f"step 5 proof: tracking {trk} ({mid})"))
+            st["steps"].append(5)
+            actions.append(
+                ("POST", "/api/agent/shipments",
+                 {"leg": "china_to_yiwu", "tracking_number": trk,
+                  "carrier": "", "status": "created"},
+                 f"china shipment for tracking {trk}"))
+            for oid in track_open:
+                actions.append(
+                    ("POST", f"/api/agent/open-items/{oid}/resolve", {},
+                     f"tracking {trk} resolves sample_tracking {oid}"))
+            track_open.clear()
+            st["draft"] = ("Thanks — got the tracking number, "
+                           "we'll watch for it.")
+            st["draft_why"] = "§3.8 tracking-number thanks"
+            break
+        # --- quotes (Haim only; drafts stay number-free) ---
+        if _PRICE_PAT.search(text):
+            actions.append(
+                ("POST", "/api/agent/quotes",
+                 {"factory_product_id": fp, "message_id": mid,
+                  "text": text[:500]},
+                 f"price quote recorded for Haim ({mid})"))
+            if not st["draft"]:
+                st["draft"] = ("Thanks for the details — let's confirm "
+                               "the spec so we can move to a sample.")
+                st["draft_why"] = "§3.8 price-quote thanks (no numbers)"
+        # --- fee requests -> fee card, never agree ---
+        if _FEE_PAT.search(text):
+            actions.append(
+                ("POST", "/api/agent/questions",
+                 {"factory_product_id": fp, "kind": "fee",
+                  "body": {"message_id": mid, "text": text[:500]},
+                  "importance": "high"},
+                 f"sample fee request -> fee card ({mid})"))
+            st["haim"] = True
+            continue
+        # --- spec changes ---
+        if _CHANGE_PAT.search(text):
+            key = _field_guess(text)
+            tag = spec_tags.get(key, "")
+            result = ("accepted" if tag == "flexible"
+                      else "declined" if tag == "locked" else "pending")
+            actions.append(
+                ("POST", "/api/agent/adjustments",
+                 {"factory_product_id": fp, "field_key": key,
+                  "proposed_value": text[:300], "message_id": mid,
+                  "result": result},
+                 f"proposed spec change ({key}={result}) ({mid})"))
+            if result == "pending":
+                actions.append(
+                    ("POST", "/api/agent/open-items",
+                     {"factory_product_id": fp, "direction": "we_owe",
+                      "kind": "question",
+                      "summary": f"Spec change proposal ({key}): "
+                                 f"{text[:120]}",
+                      "opened_message_id": mid},
+                     "no spec tags in payload: Haim decides"))
+                st["haim"] = True
+            elif not st["draft"]:
+                st["draft"] = ("Noted on the spec point — we'll confirm "
+                               "and get back to you.")
+                st["draft_why"] = "§3.8 change proposal acknowledgement"
+        # --- reply decision per §3.8 ---
+        if not st["draft"]:
+            if _MOQ_PAT.search(text):
+                actions.append(
+                    ("POST", "/api/agent/questions",
+                     {"factory_product_id": fp, "kind": "question",
+                      "body": {"issue": "order_terms",
+                               "message_id": mid, "text": text[:300]},
+                      "importance": "medium"},
+                     f"MOQ/payment terms -> question card ({mid})"))
+                st["haim"] = True
+            elif _QUESTION_HINT.search(text):
+                if any(w in text.lower()
+                       for w in ("spec", "dimension", "size", "material",
+                                 "weight", "color", "certificate")):
+                    st["draft"] = ("Good question — checking against our "
+                                   "spec and will reply shortly.")
+                    st["draft_why"] = "§3.8 spec-answerable question"
+                else:
+                    actions.append(
+                        ("POST", "/api/agent/open-items",
+                         {"factory_product_id": fp,
+                          "direction": "we_owe", "kind": "question",
+                          "summary": text[:150],
+                          "opened_message_id": mid},
+                         f"spec-gap question opened ({mid})"))
+                    st["haim"] = True
+            elif 2 in st["steps"] and 3 not in st["steps"]:
+                st["draft"] = ("Great — could you confirm the spec so we "
+                               "can move to a sample?")
+                st["draft_why"] = "§3.8 step-2 spec confirmation request"
+            elif 3 in st["steps"] or 4 in st["steps"]:
+                st["draft"] = ("Thanks — looking forward to the sample.")
+                st["draft_why"] = "§3.8 post-confirmation thanks"
+
+    for fp, st in touched.items():
+        waiting = "haim" if (st["haim"] or st["draft"]) else "factory"
+        first_undone = next(
+            (s for s in (1, 2, 3, 4, 5) if s not in st["steps"]), None)
+        nxt = (f"step {first_undone}" if first_undone
+               else "sample in transit")
+        steps_done = sorted(set(st["steps"]))
+        summary = ("Batch organized: steps "
+                   + (str(steps_done) if steps_done else "none")
+                   + " marked"
+                   + ("; product link guessed" if st["guessed"] else ""))
+        note = (f"product_guessed:{fp}" if st["guessed"] else "")
+        actions.append(
+            ("POST", "/api/agent/status",
+             {"factory_product_id": fp, "status_sentence": summary,
+              "waiting_on": waiting, "next_step": nxt, "note": note},
+             f"status for {fp}: waiting_on={waiting}, next={nxt}"))
+        if st["draft"]:
+            actions.append(
+                ("POST", "/api/agent/drafts",
+                 {"factory_product_id": fp, "chat_id": chat_id,
+                  "kind": "reply", "reason": st["draft_why"],
+                  "bubbles": [st["draft"]], "source": "ai"},
+                 f"reply draft ({st['draft_why']})"))
+    return actions
+
+
+def _is_organize_dryrun(payload: dict) -> bool:
+    return bool((payload or {}).get("dry_run")) or os.environ.get(
+        ORGANIZE_DRYRUN_ENV) == "1"
+
+
+def _execute_organize_actions(actions: list, dry_run: bool) -> None:
+    for method, path, body, why in actions:
+        if method == "log-only" or dry_run:
+            logger.info("command_center: organize %s %s %s [dry_run=%s]",
+                        "NOTE " if method == "log-only" else "would POST",
+                        path, why, dry_run)
+            continue
+        res = _api(method, path, body)
+        logger.info("command_center: organize %s %s ok=%s (%s)",
+                    method, path, res is not None, why)
+
+
+def _run_organize_jobs(jobs: list) -> None:
+    """Process one chat batch (one or more organize jobs). Marks each
+    job done/failed with its lease token."""
+    for job in jobs:
+        payload = job.get("payload") or {}
+        try:
+            actions = plan_organize_actions(payload)
+            dry_run = _is_organize_dryrun(payload)
+            _execute_organize_actions(actions, dry_run)
+            logger.info(
+                "command_center: organize job %s planned %d action(s)",
+                job.get("id"), len(actions))
+            if dry_run:
+                logger.info("command_center: organize job %s dry-run, "
+                            "skipping done ack", job.get("id"))
+            else:
+                _finish_job(job, True)
+        except Exception as exc:
+            logger.warning("command_center: organize job %s failed: %s",
+                           job.get("id"), exc)
+            if _is_organize_dryrun(payload):
+                logger.info("command_center: organize job %s dry-run, "
+                            "skipping failed ack", job.get("id"))
+            else:
+                _finish_job(job, False, str(exc)[:500])
+
+
+def _finish_job(job: dict, ok: bool, error: str = "") -> None:
+    route = "done" if ok else "failed"
+    body = {"lease_token": job.get("lease_token") or ""}
+    if not ok:
+        body["error"] = error
+    res = _api("POST", f"/api/agent/jobs/{job.get('id')}/{route}", body)
+    logger.info("command_center: job %s (%s) %s ack=%s", job.get("id"),
+                job.get("type"), route, res is not None)
+
+
+# Per-chat quiet-period buffer: chat_id -> {"deadline": float, "jobs": [...] }
+_organize_pending: dict = {}
+_organize_lock = threading.Lock()
+
+
+def _organize_chat_id(job: dict) -> str:
+    p = job.get("payload") or {}
+    chat = p.get("chat") or {}
+    return str(chat.get("id") or p.get("chat_id") or "unknown")
+
+
+def _buffer_organize_job(job: dict) -> None:
+    cid = _organize_chat_id(job)
+    with _organize_lock:
+        entry = _organize_pending.setdefault(
+            "unknown" if not cid else cid,
+            {"deadline": 0.0, "jobs": []})
+        entry["jobs"].append(job)
+        # Newest queued job resets the 2-minute quiet period.
+        entry["deadline"] = time.time() + ORGANIZE_QUIET_S
+    logger.info("command_center: organize job %s buffered for chat %s "
+                "(%d pending)", job.get("id"), cid,
+                len(entry["jobs"]))
+
+
+def _organize_sweeper() -> None:
+    while True:
+        try:
+            time.sleep(10)
+            now = time.time()
+            due: list = []
+            with _organize_lock:
+                for cid in list(_organize_pending):
+                    entry = _organize_pending[cid]
+                    if entry["jobs"] and now >= entry["deadline"]:
+                        due.append((cid, entry["jobs"]))
+                        del _organize_pending[cid]
+            for cid, jobs in due:
+                logger.info("command_center: organize batch for chat %s "
+                            "quiet, processing %d job(s)", cid, len(jobs))
+                _run_organize_jobs(jobs)
+        except Exception as exc:
+            logger.warning("command_center: organize sweeper error: %s", exc)
+
+
 # ------------------------------------------------------------- workers ---
 
 _workers_started = False
@@ -515,6 +1006,7 @@ def _ensure_workers_started() -> None:
         (_job_loop, "cc-jobs"),
         (_outbox_loop, "cc-outbox"),
         (_tick_loop, "cc-tick"),
+        (_organize_sweeper, "cc-organize"),
     ):
         t = threading.Thread(target=target, name=name, daemon=True)
         t.start()
@@ -529,7 +1021,10 @@ def _job_loop() -> None:
                 res = _api("POST", "/api/agent/jobs/claim", {"type": job_type})
                 job = (res or {}).get("job")
                 if job:
-                    _run_job(job)
+                    if job.get("type") == "organize":
+                        _buffer_organize_job(job)  # 2-min quiet batch (Goal 6)
+                    else:
+                        _run_job(job)
         except Exception as exc:
             logger.warning("command_center: job loop error: %s", exc)
 

@@ -13,6 +13,7 @@ export interface Factory {
   id: string; productId: string; name: string; contact: string;
   channel: string; active: boolean;
   fstage: FStage;
+  canShareVolumes?: boolean; // SPEC §1.2: volumes named only when true (P4)
   people: Person[];
   sampleStatus: SampleStatus; quoteStatus: QuoteStatus;
   lastContactAt: number | null;
