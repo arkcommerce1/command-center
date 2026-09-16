@@ -238,7 +238,7 @@ export function SpecFieldsSection({
           <div className="p-3 text-sm text-muted-foreground">No structured fields yet. Add one below, or use the AI edit bar.</div>
         )}
         {displayFields.map((f) => (
-          <div key={f.id} className="flex flex-wrap items-center gap-2 p-2">
+          <div key={f.id} className={`flex flex-wrap items-center gap-2 p-2 ${f.value === "Needs input" ? "bg-amber-50/50" : ""}`}>
             <div className="min-w-[110px] text-sm font-medium">{f.label || "—"}</div>
             <SourceBadge source={f.source} />
             {readOnly ? (

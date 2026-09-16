@@ -4,13 +4,14 @@ import * as React from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
+import { StageLadder } from "./_components/stage-ladder";
 import { SpecFieldsSection } from "./_components/spec-fields-section";
 
 const STAGE_LABEL: Record<string, string> = {
@@ -54,15 +55,24 @@ export default function ProductDetail({ params }: { params: Promise<{ id: string
   const [newF, setNewF] = React.useState("");
   const [draft, setDraft] = React.useState("");
   const [draftAi, setDraftAi] = React.useState(false);
-  const [upd, setUpd] = React.useState("");
   const [yukiPreviewOpen, setYukiPreviewOpen] = React.useState(false);
+  const [loading, setLoading] = React.useState(true);
+  const [error, setError] = React.useState(false);
 
   const load = React.useCallback(async () => {
-    const r = await fetch(`/api/products/${id}`);
-    if (!r.ok) return;
-    const d = await r.json();
-    setP(d.product);
-    setFs(d.factories);
+    setLoading(true);
+    setError(false);
+    try {
+      const r = await fetch(`/api/products/${id}`);
+      if (!r.ok) throw new Error("bad response");
+      const d = await r.json();
+      setP(d.product);
+      setFs(d.factories);
+    } catch {
+      setError(true);
+    } finally {
+      setLoading(false);
+    }
   }, [id]);
   React.useEffect(() => {
     load();
@@ -77,16 +87,12 @@ export default function ProductDetail({ params }: { params: Promise<{ id: string
     load();
   }
 
-  if (!p) return <p className="text-muted-foreground">Loading…</p>;
-  const df = openId ? fs.find((f) => f.id === openId) : null;
-  const yukiBriefs: any[] = (p as any).yukiBriefs || [];
+  const yukiBriefs: any[] = (p as any)?.yukiBriefs || [];
   const lastBrief = yukiBriefs.length ? yukiBriefs[yukiBriefs.length - 1] : null;
-  const specDone = !!(p as any).specDone;
-  const specUpdatedAt = (p as any).specUpdatedAt as number | null;
+  const specDone = !!(p as any)?.specDone;
+  const specUpdatedAt = (p as any)?.specUpdatedAt as number | null;
   const isOutdated = !!lastBrief && !!specUpdatedAt && specUpdatedAt > lastBrief.sentAt;
-  const canSendBrief = specDone && !!(p.spec?.notes && p.spec.notes.trim());
-  const yukiChecklist = (p as any).yukiChecklist || {};
-  const boxCutoffDate = (p as any).boxCutoffDate || "";
+  const canSendBrief = specDone && !!(p?.spec?.notes && p.spec.notes.trim());
 
   function buildYukiBriefContent() {
     const skuLine = ((p as any).skus || []).map((r: any) => `${r.sku || "?"} ${r.size || ""} pack ${r.pack || "?"}: ${r.order || "?"} units`).join("\n");
@@ -99,18 +105,8 @@ export default function ProductDetail({ params }: { params: Promise<{ id: string
       "Spec notes:",
       p.spec.notes || "(none)",
       "",
-      "Checklist:",
-      `Items: ${yukiChecklist.items || "TBD"}`,
-      `Variants: ${yukiChecklist.variants || "TBD"}`,
-      `Quantities: ${yukiChecklist.quantities || "TBD"}`,
-      `Delivery address: ${yukiChecklist.deliveryAddress || "TBD"}`,
-      `Fee: ${yukiChecklist.fee || "TBD"}`,
-      `Dates: ${yukiChecklist.dates || "TBD"}`,
-      "",
       "Factories / contacts:",
       factoryLines || "(none active yet)",
-      "",
-      `Box cutoff date: ${boxCutoffDate || "TBD"}`,
     ].join("\n");
   }
 
@@ -121,15 +117,6 @@ export default function ProductDetail({ params }: { params: Promise<{ id: string
     await patch({ yukiBriefs: [...yukiBriefs, brief] });
     setYukiPreviewOpen(false);
   }
-
-  const steps = [
-    { label: "Build spec sheet", done: !!(p as any).specDone, go: () => patch({ specDone: !(p as any).specDone }) },
-    { label: "FBA calculator (sheet)", done: !!p.fbaSheetUrl, go: () => {
-      if (p.fbaSheetUrl) window.open(p.fbaSheetUrl, "_blank", "noopener,noreferrer");
-      else document.getElementById("spec-card")?.scrollIntoView({ behavior: "smooth" });
-    } },
-    { label: "Source factories (Yuki)", done: !!(p as any).sourcingStarted || fs.length > 0, go: () => patch({ sourcingStarted: !(p as any).sourcingStarted, stage: "sourcing" }) },
-  ];
 
   async function aiDraft() {
     let bullets: string[] = [];
@@ -156,8 +143,65 @@ export default function ProductDetail({ params }: { params: Promise<{ id: string
     setDraftAi(!!r.ai);
   }
 
+  // --- Stage ladder computations ---
+  const specApproved = !!(p as any)?.specVersion && (p as any).specVersion > 0;
+  const specFields: any[] = (p as any)?.specFields || [];
+  const specNeedsInput = specFields.filter((f: any) => !f.value || f.value.trim() === "").length;
+  const fbaSheetUrl = (p as any)?.fbaSheetUrl || null;
+  const factoryCount = fs.length;
+  const factoriesWithStep1 = fs.filter((f) => f.fstage && f.fstage !== "intro").length;
+  const factoriesWithStep3 = fs.filter((f) => ["sample_requested", "sample_yiwu", "sample_ny", "sample_confirmed", "quoted", "negotiating", "ordered"].includes(f.fstage)).length;
+  const factoriesWithStep4 = fs.filter((f) => ["sample_yiwu", "sample_ny", "sample_confirmed", "quoted", "negotiating", "ordered"].includes(f.fstage)).length;
+  const samplesPassedChina = 0; // Goal 10 will populate
+  const samplesArrivedNY = 0;
+  const samplesApproved = 0;
+
+  function openFactory(fid: string) {
+    setOpenId(fid);
+  }
+
+  function gotoSamplesChina() {
+    window.location.href = "/dashboard/samples?tab=china";
+  }
+  function gotoSamplesNY() {
+    window.location.href = "/dashboard/samples?tab=ny";
+  }
+
+  // --- Loading state ---
+  if (loading) {
+    return (
+      <div className="flex flex-col gap-4">
+        <div className="flex items-center gap-4">
+          <Skeleton className="h-16 w-16 rounded-lg" />
+          <div className="flex-1 gap-2">
+            <Skeleton className="h-7 w-48" />
+            <Skeleton className="mt-2 h-4 w-32" />
+          </div>
+        </div>
+        <Skeleton className="h-64 w-full rounded-lg" />
+        <Skeleton className="h-48 w-full rounded-lg" />
+        <Skeleton className="h-96 w-full rounded-lg" />
+      </div>
+    );
+  }
+
+  // --- Error state ---
+  if (error || !p) {
+    return (
+      <div className="flex flex-col items-center gap-4 py-16">
+        <p className="text-muted-foreground" data-testid="product-error">Could not load this product.</p>
+        <Button variant="outline" onClick={load} data-testid="retry-btn">
+          Retry
+        </Button>
+      </div>
+    );
+  }
+
+  const df = openId ? fs.find((f) => f.id === openId) : null;
+
   return (
     <div className="flex flex-col gap-4">
+      {/* Header with image, name, stage badge, start date — Star stays */}
       <div className="flex items-center gap-4">
         {p.imageUrl ? (
           // eslint-disable-next-line @next/next/no-img-element
@@ -188,28 +232,34 @@ export default function ProductDetail({ params }: { params: Promise<{ id: string
         </div>
       </div>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Start</CardTitle>
-        </CardHeader>
-        <CardContent className="flex flex-col gap-1">
-          {steps.map((s, i) => (
-            <div
-              key={i}
-              role="button"
-              tabIndex={0}
-              onClick={s.go}
-              onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); s.go(); } }}
-              className="flex cursor-pointer items-center gap-3 rounded-md px-2 py-2 text-left text-sm hover:bg-accent"
-            >
-              <Checkbox checked={s.done} onCheckedChange={() => s.go()} onClick={(e) => e.stopPropagation()} />
-              <span>{s.label}</span>
-            </div>
-          ))}
-        </CardContent>
-      </Card>
+      {/* Stage ladder — replaces the loose Start checklist */}
+      <StageLadder
+        specApproved={specApproved}
+        specNeedsInput={specNeedsInput}
+        fbaSheetUrl={fbaSheetUrl}
+        factoryCount={factoryCount}
+        factoriesWithStep1={factoriesWithStep1}
+        factoriesWithStep3={factoriesWithStep3}
+        factoriesWithStep4={factoriesWithStep4}
+        samplesPassedChina={samplesPassedChina}
+        samplesArrivedNY={samplesArrivedNY}
+        samplesApproved={samplesApproved}
+        onStage1Action={() => document.getElementById("spec-card")?.scrollIntoView({ behavior: "smooth" })}
+        onStage2Action={() => {
+          if (p.fbaSheetUrl) window.open(p.fbaSheetUrl, "_blank", "noopener,noreferrer");
+          else document.getElementById("spec-card")?.scrollIntoView({ behavior: "smooth" });
+        }}
+        onStage3Action={() => document.getElementById("factories-card")?.scrollIntoView({ behavior: "smooth" })}
+        onStage4Action={openFactory}
+        onStage5Action={openFactory}
+        onStage6Action={gotoSamplesChina}
+        onStage7Action={gotoSamplesNY}
+        onStage8Action={gotoSamplesNY}
+        factories={fs.map((f) => ({ id: f.id, name: f.name, fstage: f.fstage || "intro" }))}
+      />
 
-      <Card>
+      {/* Factories section — lists factory rows */}
+      <Card id="factories-card" data-testid="factories-section">
         <CardHeader>
           <CardTitle>Factories · {fs.filter((f) => f.active).length}</CardTitle>
         </CardHeader>
@@ -227,7 +277,7 @@ export default function ProductDetail({ params }: { params: Promise<{ id: string
             </TableHeader>
             <TableBody>
               {fs.map((f) => (
-                <TableRow key={f.id} className={`cursor-pointer ${f.active ? "" : "opacity-50"}`} onClick={() => setOpenId(f.id)}>
+                <TableRow key={f.id} className={`cursor-pointer ${f.active ? "" : "opacity-50"}`} onClick={() => setOpenId(f.id)} data-testid={`factory-row-${f.id}`}>
                   <TableCell className="font-medium">{f.name}</TableCell>
                   <TableCell>
                     <StageBadge v={f.fstage || "intro"} map={FSTAGE_LABEL} />
@@ -248,7 +298,7 @@ export default function ProductDetail({ params }: { params: Promise<{ id: string
               ))}
               {fs.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={6} className="text-center text-muted-foreground">
+                  <TableCell colSpan={6} className="text-center text-muted-foreground" data-testid="factories-empty">
                     No factories yet.
                   </TableCell>
                 </TableRow>
@@ -276,6 +326,7 @@ export default function ProductDetail({ params }: { params: Promise<{ id: string
         </CardContent>
       </Card>
 
+      {/* Spec sheet section */}
       <Card id="spec-card">
         <CardHeader>
           <CardTitle>Spec sheet</CardTitle>
@@ -294,6 +345,7 @@ export default function ProductDetail({ params }: { params: Promise<{ id: string
               disabled={!canSendBrief}
               title={!canSendBrief ? "Approve the spec (Build spec sheet + notes) before sending to Yuki" : undefined}
               onClick={() => setYukiPreviewOpen(true)}
+              data-testid="send-yuki-btn"
             >
               {lastBrief ? "Resend Yuki Brief" : "Send Yuki Brief"}
             </Button>
@@ -304,7 +356,7 @@ export default function ProductDetail({ params }: { params: Promise<{ id: string
             )}
           </div>
           {lastBrief && (
-            <div className="text-xs text-muted-foreground">
+            <div className="text-xs text-muted-foreground" data-testid="yuki-brief-sent">
               Brief v{lastBrief.version} sent to Yuki, {new Date(lastBrief.sentAt).toLocaleString()}
             </div>
           )}
@@ -410,52 +462,20 @@ export default function ProductDetail({ params }: { params: Promise<{ id: string
           </div>
 
           <Input
-            value={upd}
-            onChange={(e) => setUpd(e.target.value)}
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
             placeholder="Note today's spec update… (auto-dated)"
             onKeyDown={(e) => {
-              if (e.key === "Enter" && upd.trim()) {
-                patch({ spec: { lastUpdate: `${new Date().toLocaleDateString("en-US", { month: "numeric", day: "numeric" })} ${upd.trim()}` } });
-                setUpd("");
+              if (e.key === "Enter" && (e.target as HTMLInputElement).value.trim()) {
+                const v = (e.target as HTMLInputElement).value;
+                patch({ spec: { lastUpdate: `${new Date().toLocaleDateString("en-US", { month: "numeric", day: "numeric" })} ${v.trim()}` } });
+                setDraft("");
               }
             }}
           />
           <div className="grid grid-cols-2 gap-2">
             <Input value={p.asin || ""} onChange={(e) => setP({ ...p, asin: e.target.value.toUpperCase() })} onBlur={(e) => patch({ asin: e.target.value.toUpperCase() })} placeholder="ASIN" maxLength={10} className="font-mono uppercase" />
             <Input value={p.imageUrl || ""} onChange={(e) => setP({ ...p, imageUrl: e.target.value })} onBlur={(e) => patch({ imageUrl: e.target.value })} placeholder="Photo URL" />
-          </div>
-          <div className="rounded-lg border p-3">
-            <div className="mb-2 text-sm font-semibold">Yuki brief checklist</div>
-            <div className="grid grid-cols-2 gap-2">
-              {(
-                [
-                  ["Items", "items"],
-                  ["Variants", "variants"],
-                  ["Quantities", "quantities"],
-                  ["Delivery address", "deliveryAddress"],
-                  ["Fee", "fee"],
-                  ["Dates", "dates"],
-                ] as const
-              ).map(([label, k]) => (
-                <div key={k} className="grid gap-1.5">
-                  <Label>{label}</Label>
-                  <Input
-                    value={yukiChecklist[k] || ""}
-                    onChange={(e) => setP({ ...p, yukiChecklist: { ...yukiChecklist, [k]: e.target.value } })}
-                    onBlur={(e) => patch({ yukiChecklist: { [k]: e.target.value } })}
-                  />
-                </div>
-              ))}
-              <div className="grid gap-1.5">
-                <Label>Box cutoff date</Label>
-                <Input
-                  type="date"
-                  value={boxCutoffDate}
-                  onChange={(e) => setP({ ...p, boxCutoffDate: e.target.value })}
-                  onBlur={(e) => patch({ boxCutoffDate: e.target.value })}
-                />
-              </div>
-            </div>
           </div>
 
           <Button

@@ -71,18 +71,26 @@ function factoriesString(p: Product) {
   return `${count} · ${p.furthestFactoryStageLabel || "—"}`;
 }
 
+type FilterTab = "all" | "active" | "ideas";
+
 export default function ProductsPage() {
   const [products, setProducts] = React.useState<Product[]>([]);
   const [loading, setLoading] = React.useState(true);
+  const [error, setError] = React.useState(false);
   const [name, setName] = React.useState("");
   const [asin, setAsin] = React.useState("");
   const [busy, setBusy] = React.useState(false);
+  const [filter, setFilter] = React.useState<FilterTab>("all");
 
   const load = React.useCallback(async () => {
     setLoading(true);
+    setError(false);
     try {
       const r = await fetch("/api/products");
-      if (r.ok) setProducts(await r.json());
+      if (!r.ok) throw new Error("bad response");
+      setProducts(await r.json());
+    } catch {
+      setError(true);
     } finally {
       setLoading(false);
     }
@@ -132,11 +140,48 @@ export default function ProductsPage() {
     load();
   }
 
+  const filtered = React.useMemo(() => {
+    if (filter === "ideas") return products.filter((p) => !p.started || p.stage === "idea");
+    if (filter === "active") return products.filter((p) => p.started && p.stage !== "idea");
+    return products;
+  }, [products, filter]);
+
+  const ideasCount = products.filter((p) => !p.started || p.stage === "idea").length;
+  const activeCount = products.filter((p) => p.started && p.stage !== "idea").length;
+
   return (
     <div className="flex flex-col gap-4">
       <div>
         <h2 className="text-3xl tracking-tight">Products</h2>
         <p className="text-muted-foreground">Every product, every stage. ASIN pulls title + photo.</p>
+      </div>
+
+      {/* Filter tabs */}
+      <div className="flex gap-1" data-testid="filter-tabs">
+        <Button
+          size="sm"
+          variant={filter === "all" ? "default" : "outline"}
+          onClick={() => setFilter("all")}
+          data-testid="tab-all"
+        >
+          All ({products.length})
+        </Button>
+        <Button
+          size="sm"
+          variant={filter === "active" ? "default" : "outline"}
+          onClick={() => setFilter("active")}
+          data-testid="tab-active"
+        >
+          Active ({activeCount})
+        </Button>
+        <Button
+          size="sm"
+          variant={filter === "ideas" ? "default" : "outline"}
+          onClick={() => setFilter("ideas")}
+          data-testid="tab-ideas"
+        >
+          Ideas ({ideasCount})
+        </Button>
       </div>
 
       <Card>
@@ -176,7 +221,7 @@ export default function ProductsPage() {
             <TableBody>
               {loading &&
                 Array.from({ length: 4 }).map((_, i) => (
-                  <TableRow key={`skeleton-${i}`}>
+                  <TableRow key={`skeleton-${i}`} data-testid="skeleton-row">
                     <TableCell>
                       <div className="flex items-center gap-3">
                         <Skeleton className="h-9 w-9 rounded-md" />
@@ -194,8 +239,20 @@ export default function ProductsPage() {
                     </TableCell>
                   </TableRow>
                 ))}
-              {!loading &&
-                products.map((p) => (
+              {!loading && error && (
+                <TableRow>
+                  <TableCell colSpan={8} className="text-center">
+                    <div className="flex flex-col items-center gap-2 py-8" data-testid="products-error">
+                      <p className="text-muted-foreground">Could not load products.</p>
+                      <Button variant="outline" size="sm" onClick={load} data-testid="retry-btn">
+                        Retry
+                      </Button>
+                    </div>
+                  </TableCell>
+                </TableRow>
+              )}
+              {!loading && !error &&
+                filtered.map((p) => (
                   <TableRow key={p.id}>
                     <TableCell>
                       <Link href={`/dashboard/products/${p.id}`} className="flex items-center gap-3">
@@ -233,10 +290,10 @@ export default function ProductsPage() {
                     </TableCell>
                   </TableRow>
                 ))}
-              {!loading && products.length === 0 && (
+              {!loading && !error && filtered.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={8} className="text-center text-muted-foreground">
-                    No products yet.
+                  <TableCell colSpan={8} className="text-center text-muted-foreground" data-testid="products-empty">
+                    {filter === "ideas" ? "No ideas yet." : filter === "active" ? "No active products yet." : "No products yet."}
                   </TableCell>
                 </TableRow>
               )}
