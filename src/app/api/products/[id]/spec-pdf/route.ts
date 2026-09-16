@@ -78,11 +78,7 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
   page.drawText(`Master SKU: ${masterSku || "—"}`, { x: margin, y, size: 12, font: bold, color: rgb(0.3, 0.3, 0.3) });
   y -= 24;
 
-  // ASIN
-  if (p.asin) {
-    page.drawText(`ASIN: ${p.asin}`, { x: margin, y, size: 12, font: bold, color: rgb(0.3, 0.3, 0.3) });
-    y -= 20;
-  }
+  // ASIN removed from spec sheet per Haim's instruction — not shown to factories.
 
   function section(title: string) {
     y -= 6;

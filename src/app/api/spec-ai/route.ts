@@ -86,7 +86,7 @@ export async function POST(req: NextRequest) {
             { role: "system", content: SYSTEM },
             {
               role: "user",
-              content: `Product name: ${b.name || ""}${b.asin ? `\nASIN: ${b.asin}` : ""}\n\n${amazonContext}`,
+              content: `Product name: ${b.name || ""}${b.asin ? `\n(ASIN ${b.asin} — for reference only, do NOT include ASIN in the spec output)` : ""}\n\n${amazonContext}`,
             },
           ],
         }),
