@@ -1205,14 +1205,32 @@ def _run_draft_job(job: dict) -> None:
         logger.warning("command_center: draft job %s has no factory_product_id", job.get("id"))
         return
 
-    # Fetch context from the Agent API.
+    # Fetch context from the Agent API. The factoryProductId may be a
+    # factory ID (organize creates it) or a factory_product link ID.
+    # Either way, we need messages for the chat — get them directly.
     ctx_res = _api("GET", f"/api/agent/context?factoryProductId={fp}")
     if not ctx_res:
         logger.warning("command_center: draft job %s context fetch failed", job.get("id"))
-        return
 
-    # Read the latest inbound factory message from context.
-    messages = ctx_res.get("messages") or []
+    # If context returned no messages (factory_product_id doesn't match
+    # any link), fall back to fetching all messages from the agent store
+    # and filtering by the chat_id in the job payload.
+    messages = (ctx_res or {}).get("messages") or []
+    if not messages:
+        # Try getting messages from the chat directly.
+        chat_id_from_payload = str(payload.get("chat_id", "") or "")
+        if chat_id_from_payload:
+            all_msgs = _api("GET", "/api/agent/messages") or []
+            # messages route may not exist; try the dashboard messages route
+            if not all_msgs:
+                all_msgs = _api("GET", "/api/messages") or []
+            if isinstance(all_msgs, list):
+                messages = [m for m in all_msgs if m.get("chat_id") == chat_id_from_payload]
+            logger.info("command_center: draft job %s fell back to %d messages for chat %s",
+                        job.get("id"), len(messages), chat_id_from_payload)
+        if not messages:
+            logger.info("command_center: draft job %s no messages found, skipping", job.get("id"))
+            return
     last_inbound = None
     for m in reversed(messages):
         if m.get("direction") == "in":
