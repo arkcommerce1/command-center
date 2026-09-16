@@ -69,7 +69,7 @@ export function __resetAgentDb() {
 async function readDb(): Promise<AgentDb> {
   if (mem) return mem;
   if (usePg()) {
-    const { sql } = await import("@vercel/postgres");
+    const { sql } = await import("./pg-adapter");
     await sql`CREATE TABLE IF NOT EXISTS agent_kv (id TEXT PRIMARY KEY, data JSONB NOT NULL)`;
     const r = await sql`SELECT data FROM agent_kv WHERE id='db'`;
     mem = { ...structuredClone(EMPTY), ...((r.rows[0]?.data as object) ?? {}) };
@@ -87,7 +87,7 @@ async function readDb(): Promise<AgentDb> {
 async function writeDb() {
   if (!mem) return;
   if (usePg()) {
-    const { sql } = await import("@vercel/postgres");
+    const { sql } = await import("./pg-adapter");
     await sql`INSERT INTO agent_kv (id, data) VALUES ('db', ${JSON.stringify(mem)}::jsonb)
       ON CONFLICT (id) DO UPDATE SET data=EXCLUDED.data`;
     return;

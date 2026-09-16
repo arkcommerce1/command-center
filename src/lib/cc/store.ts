@@ -139,7 +139,7 @@ async function writeLocal(data: Partial<LocalData>) {
 }
 
 async function pg() {
-  const { sql } = await import("@vercel/postgres");
+  const { sql } = await import("./pg-adapter");
   return sql;
 }
 
@@ -476,7 +476,7 @@ async function deleteRow(table: string, localKey: (typeof LOCAL_LIST_KEYS)[numbe
     return writeLocal(d);
   }
   const sql = await pg();
-  await sql.query(`DELETE FROM ${table} WHERE id = $1`, [id]);
+  await (sql as any).query(`DELETE FROM ${table} WHERE id = $1`, [id]);
 }
 
 // --- Spec versions ---
