@@ -12,6 +12,7 @@
     "check:fix": "biome check --write",
     "typecheck": "tsc --noEmit",
     "test:unit": "vitest run",
+    "eval:drafter": "vitest run tests/unit/drafter.eval.test.ts",
     "test:e2e": "playwright test",
     "check": "npm run typecheck && biome check vitest.config.ts playwright.config.ts tests/ && npm run test:unit && npm run test:e2e",
     "prepare": "husky",
@@ -63,6 +64,7 @@
     "zustand": "^5.0.15"
   },
   "devDependencies": {
+    "@auth/core": "^0.41.3",
     "@biomejs/biome": "^2.5.13",
     "@playwright/test": "^1.63.0",
     "@tailwindcss/postcss": "^4.3.3",

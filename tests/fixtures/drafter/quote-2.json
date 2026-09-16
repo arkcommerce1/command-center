@@ -1,0 +1,16 @@
+{
+  "id": "quote-2",
+  "message": "Best quote 300 USD for 500pcs.",
+  "ctx": {
+    "step1Done": true,
+    "step2Done": true,
+    "step3Done": false,
+    "step4Done": false,
+    "specAnswers": [],
+    "openChanges": 0,
+    "approach": "already_selling"
+  },
+  "expected": {
+    "action": "draft"
+  }
+}

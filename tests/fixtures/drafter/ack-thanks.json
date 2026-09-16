@@ -1,0 +1,16 @@
+{
+  "id": "ack-thanks",
+  "message": "thanks!",
+  "ctx": {
+    "step1Done": true,
+    "step2Done": false,
+    "step3Done": false,
+    "step4Done": false,
+    "specAnswers": [],
+    "openChanges": 0,
+    "approach": "already_selling"
+  },
+  "expected": {
+    "action": "none"
+  }
+}

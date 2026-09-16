@@ -2,29 +2,25 @@
 // suggest -> v2 (v1 superseded); disapprove closes; WhatsApp/dashboard
 // double-approve sends once; fee card queues exactly the shown @Yuki message.
 // Route-level: real handlers, real file-backed stores (snapshotted/restored).
-import { promises as fs } from "fs";
-import path from "path";
+
 import { NextRequest } from "next/server";
+
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
+import { POST as replyPost } from "@/app/api/agent/approval-reply/route";
+import { POST as claimPost } from "@/app/api/agent/outbox/claim/route";
+import { GET as decisionsGet } from "@/app/api/decisions/route";
 import { POST as approvePost } from "@/app/api/drafts/[id]/versions/[vid]/approve/route";
 import { POST as disapprovePost } from "@/app/api/drafts/[id]/versions/[vid]/disapprove/route";
 import { POST as versionsPost } from "@/app/api/drafts/[id]/versions/route";
-import { POST as replyPost } from "@/app/api/agent/approval-reply/route";
-import { GET as decisionsGet } from "@/app/api/decisions/route";
 import { POST as answerPost } from "@/app/api/questions/[id]/answer/route";
-import { POST as claimPost } from "@/app/api/agent/outbox/claim/route";
 import { __resetAgentDb, dbFind, dbInsert } from "@/lib/cc/agent-store";
 import { wordDiff } from "@/lib/cc/decision-bridge";
-import {
-  getDraft,
-  getQuestion,
-  listDrafts,
-  saveDraft,
-  saveDraftVersion,
-  saveQuestion,
-} from "@/lib/cc/store";
-import { Draft, DraftVersion, Question } from "@/lib/cc/types";
+import { getDraft, getQuestion, listDrafts, saveDraft, saveDraftVersion, saveQuestion } from "@/lib/cc/store";
+import type { Draft, DraftVersion, Question } from "@/lib/cc/types";
+
+import { promises as fs } from "node:fs";
+import path from "node:path";
 
 process.env.CC_AGENT_TOKEN = process.env.CC_AGENT_TOKEN || "test-token";
 const TOKEN = process.env.CC_AGENT_TOKEN as string;
@@ -90,11 +86,24 @@ function versionRow(draftId: string, n: number, text: string): DraftVersion {
 
 async function seedApprovableDraft(text = "Hello, thanks for the update.\n\nCould you confirm the material?") {
   const fp = nid("fp");
-  const draft: Draft = { id: nid("draft"), factoryProductId: fp, type: "reply", layer: 2, status: "pending", trigger: "factory asked about material", createdAt: Date.now() };
+  const draft: Draft = {
+    id: nid("draft"),
+    factoryProductId: fp,
+    type: "reply",
+    layer: 2,
+    status: "pending",
+    trigger: "factory asked about material",
+    createdAt: Date.now(),
+  };
   await saveDraft(draft);
   const v1 = versionRow(draft.id, 1, text);
   await saveDraftVersion(v1);
-  const chat = await dbInsert("chats", { external_id: `whatsapp:${nid("chat")}`, channel: "whatsapp", name: "Factory Group", kind: "group" });
+  const chat = await dbInsert("chats", {
+    external_id: `whatsapp:${nid("chat")}`,
+    channel: "whatsapp",
+    name: "Factory Group",
+    kind: "group",
+  });
   await dbInsert("messages", {
     external_id: nid("msg"),
     chat_id: chat.id,
@@ -131,7 +140,7 @@ describe("Goal 7 approval flows", () => {
     expect(body.outbox.chat_id).toBe(chat.id);
     expect(body.outbox.bubbles).toEqual(["Hello, thanks for the update.", "Could you confirm the material?"]);
     expect(body.code).toMatch(/^D\d+\.1$/);
-    const rows = await dbFind("outbox", (x: any) => x.draft_version_id === v1.id);
+    const rows = await dbFind("outbox", (x: { draft_version_id?: string }) => x.draft_version_id === v1.id);
     expect(rows).toHaveLength(1);
     expect((await getDraft(draft.id))?.status).toBe("sent");
   });
@@ -142,7 +151,7 @@ describe("Goal 7 approval flows", () => {
     const res2 = await approvePost(draftReq(draft.id, v1.id, {}), params2(draft.id, v1.id));
     expect(res2.status).toBe(200);
     expect((await res2.json()).alreadyApproved).toBe(true);
-    expect(await dbFind("outbox", (x: any) => x.draft_version_id === v1.id)).toHaveLength(1);
+    expect(await dbFind("outbox", (x: { draft_version_id?: string }) => x.draft_version_id === v1.id)).toHaveLength(1);
   });
 
   it("suggest creates v2 with highlights and disables v1", async () => {
@@ -166,12 +175,12 @@ describe("Goal 7 approval flows", () => {
     // v1 is no longer approvable (latest-only).
     const bad = await approvePost(draftReq(draft.id, v1.id, {}), params2(draft.id, v1.id));
     expect(bad.status).toBe(409);
-    expect(((await bad.json()) as any).code).toBe("not_latest");
+    expect(((await bad.json()) as { code?: string }).code).toBe("not_latest");
     // But v2 approves and queues exactly one row.
     const good = await approvePost(draftReq(draft.id, v2.id, {}), params2(draft.id, v2.id));
     expect(good.status).toBe(200);
-    expect(await dbFind("outbox", (x: any) => x.draft_version_id === v2.id)).toHaveLength(1);
-    expect(await dbFind("outbox", (x: any) => x.draft_version_id === v1.id)).toHaveLength(0);
+    expect(await dbFind("outbox", (x: { draft_version_id?: string }) => x.draft_version_id === v2.id)).toHaveLength(1);
+    expect(await dbFind("outbox", (x: { draft_version_id?: string }) => x.draft_version_id === v1.id)).toHaveLength(0);
   });
 
   it("disapprove closes the draft with an optional one-liner", async () => {
@@ -195,7 +204,7 @@ describe("Goal 7 approval flows", () => {
     // Dashboard approve after WhatsApp approve: already-approved, one row total.
     const r3 = await approvePost(draftReq(draft.id, v1.id, {}), params2(draft.id, v1.id));
     expect(((await r3.json()) as any).alreadyApproved).toBe(true);
-    expect(await dbFind("outbox", (x: any) => x.draft_version_id === v1.id)).toHaveLength(1);
+    expect(await dbFind("outbox", (x: { draft_version_id?: string }) => x.draft_version_id === v1.id)).toHaveLength(1);
   });
 
   it("WhatsApp reply to an old version returns the newer-version message", async () => {
@@ -214,7 +223,7 @@ describe("Goal 7 approval flows", () => {
     expect(body.action).toBe("newer_version");
     expect(body.message).toMatch(/newer version \(v2\)/);
     expect(body.latestVersion).toBe(2);
-    expect(await dbFind("outbox", (x: any) => x.draft_version_id === v1.id)).toHaveLength(0);
+    expect(await dbFind("outbox", (x: { draft_version_id?: string }) => x.draft_version_id === v1.id)).toHaveLength(0);
   });
 
   it("WhatsApp S creates a new version; N disapproves", async () => {
@@ -229,19 +238,44 @@ describe("Goal 7 approval flows", () => {
 
   it("fee card queues exactly the shown @Yuki message", async () => {
     const fp = nid("fp");
-    const chat = await dbInsert("chats", { external_id: `whatsapp:${nid("chat")}`, channel: "whatsapp", name: "Fee Factory", kind: "group" });
-    await dbInsert("messages", { external_id: nid("msg"), chat_id: chat.id, direction: "in", text: "样品费200", translation: "Sample fee 200.", sent_at: Date.now(), factory_product_id: fp });
+    const chat = await dbInsert("chats", {
+      external_id: `whatsapp:${nid("chat")}`,
+      channel: "whatsapp",
+      name: "Fee Factory",
+      kind: "group",
+    });
+    await dbInsert("messages", {
+      external_id: nid("msg"),
+      chat_id: chat.id,
+      direction: "in",
+      text: "样品费200",
+      translation: "Sample fee 200.",
+      sent_at: Date.now(),
+      factory_product_id: fp,
+    });
     const yuki = "@Yuki can you pay the sample fee of 200 RMB to Fee Factory from the China office? Covers: 3 samples.";
     const q: Question = {
-      id: nid("q"), factoryProductId: fp, kind: "fee",
-      body: { amount: "200", currency: "RMB", covers: "3 samples", factory: "Fee Factory", factoryMessage: "样品费200", yukiMessage: yuki },
-      status: "open", answer: null, importance: "high", createdAt: Date.now(),
+      id: nid("q"),
+      factoryProductId: fp,
+      kind: "fee",
+      body: {
+        amount: "200",
+        currency: "RMB",
+        covers: "3 samples",
+        factory: "Fee Factory",
+        factoryMessage: "样品费200",
+        yukiMessage: yuki,
+      },
+      status: "open",
+      answer: null,
+      importance: "high",
+      createdAt: Date.now(),
     };
     await saveQuestion(q);
     // The card shows this exact message...
     const dec = await decisionsGet();
     const cards = ((await dec.json()) as any).cards;
-    const fee = cards.find((c: any) => c.id === q.id);
+    const fee = cards.find((c: { id?: string }) => c.id === q.id);
     expect(fee.feeMessage).toBe(yuki);
     // ...and approving the fee queues exactly it.
     const res = await answerPost(
@@ -253,7 +287,7 @@ describe("Goal 7 approval flows", () => {
       { params: Promise.resolve({ id: q.id }) },
     );
     expect(res.status).toBe(200);
-    const rows = await dbFind("outbox", (x: any) => x.draft_version_id === `fee:${q.id}`);
+    const rows = await dbFind("outbox", (x: { draft_version_id?: string }) => x.draft_version_id === `fee:${q.id}`);
     expect(rows).toHaveLength(1);
     expect(rows[0].bubbles).toEqual([yuki]);
     expect(rows[0].status).toBe("queued");
@@ -262,9 +296,14 @@ describe("Goal 7 approval flows", () => {
 
   it("question answer queues a draft job; uncertain mark-sent/send-again flip the row", async () => {
     const q: Question = {
-      id: nid("q"), factoryProductId: nid("fp"), kind: "question",
+      id: nid("q"),
+      factoryProductId: nid("fp"),
+      kind: "question",
       body: { text: "What material?", translation: "What material?" },
-      status: "open", answer: null, importance: "medium", createdAt: Date.now(),
+      status: "open",
+      answer: null,
+      importance: "medium",
+      createdAt: Date.now(),
     };
     await saveQuestion(q);
     const ans = await answerPost(
@@ -278,11 +317,22 @@ describe("Goal 7 approval flows", () => {
     expect(ans.status).toBe(200);
     expect(((await ans.json()) as any).job.type).toBe("draft");
 
-    const row = await dbInsert("outbox", { draft_version_id: nid("dv"), chat_id: "chat-x", bubbles: ["Hi"], status: "uncertain", send_after: null });
+    const row = await dbInsert("outbox", {
+      draft_version_id: nid("dv"),
+      chat_id: "chat-x",
+      bubbles: ["Hi"],
+      status: "uncertain",
+      send_after: null,
+    });
     const uq: Question = {
-      id: nid("q"), factoryProductId: nid("fp"), kind: "send_uncertain",
+      id: nid("q"),
+      factoryProductId: nid("fp"),
+      kind: "send_uncertain",
       body: { outboxId: row.id, chatName: "Factory Group", message: "Hi" },
-      status: "open", answer: null, importance: "high", createdAt: Date.now(),
+      status: "open",
+      answer: null,
+      importance: "high",
+      createdAt: Date.now(),
     };
     await saveQuestion(uq);
     const mark = await answerPost(
@@ -294,14 +344,20 @@ describe("Goal 7 approval flows", () => {
       { params: Promise.resolve({ id: uq.id }) },
     );
     expect(mark.status).toBe(200);
-    expect((await dbFind("outbox", (x: any) => x.id === row.id))[0].status).toBe("sent");
+    expect((await dbFind("outbox", (x: { id?: string; status?: string }) => x.id === row.id))[0].status).toBe("sent");
   });
 
   it("decisions payload: counters, high-first-then-oldest, no pipeline ideas", async () => {
     await seedApprovableDraft();
     const oldLow: Question = {
-      id: nid("q"), factoryProductId: null, kind: "question", body: { text: "old low" },
-      status: "open", answer: null, importance: "low", createdAt: Date.now() - 99999,
+      id: nid("q"),
+      factoryProductId: null,
+      kind: "question",
+      body: { text: "old low" },
+      status: "open",
+      answer: null,
+      importance: "low",
+      createdAt: Date.now() - 99999,
     };
     await saveQuestion(oldLow);
     const res = await decisionsGet();
@@ -310,7 +366,7 @@ describe("Goal 7 approval flows", () => {
     expect(payload.counts.toApprove).toBeGreaterThanOrEqual(1);
     expect(payload.counts.questions).toBeGreaterThanOrEqual(1);
     expect(typeof payload.counts.samples).toBe("number");
-    const imps = payload.cards.map((c: any) => c.importance);
+    const imps = payload.cards.map((c: { importance?: string }) => c.importance);
     const firstLow = imps.findIndex((i: string) => i === "low");
     const lastHigh = imps.lastIndexOf("high");
     expect(firstLow === -1 || lastHigh < firstLow).toBe(true);
@@ -320,7 +376,13 @@ describe("Goal 7 approval flows", () => {
   it("outbox claim returns the queued row with bridge routable chat id", async () => {
     const { v1 } = await seedApprovableDraft();
     const chat = (await dbFind("chats", () => true))[0];
-    await dbInsert("outbox", { draft_version_id: v1.id, chat_id: chat.id, bubbles: ["A", "B"], status: "queued", send_after: null });
+    await dbInsert("outbox", {
+      draft_version_id: v1.id,
+      chat_id: chat.id,
+      bubbles: ["A", "B"],
+      status: "queued",
+      send_after: null,
+    });
     const res = await claimPost(
       new NextRequest("http://test/api/agent/outbox/claim", {
         method: "POST",

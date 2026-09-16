@@ -1,0 +1,16 @@
+{
+  "id": "speclocked-1",
+  "message": "We propose 70/30 blend instead of 75/25.",
+  "ctx": {
+    "step1Done": true,
+    "step2Done": true,
+    "step3Done": false,
+    "step4Done": false,
+    "specAnswers": [],
+    "openChanges": 0,
+    "approach": "already_selling"
+  },
+  "expected": {
+    "action": "draft"
+  }
+}

@@ -33,7 +33,9 @@ describe("GET /api/messages (dashboard read-only slice)", () => {
       translation: "",
       sent_at: 2000,
     });
-    const mine = (rows: any[]) => rows.filter((m) => [c1.id, c2.id].includes(m.chat_id));
+    const mine = (
+      rows: Array<{ chat_id: string; text?: string; chat_name?: string; sender?: string; translation?: string }>,
+    ) => rows.filter((m) => [c1.id, c2.id].includes(m.chat_id));
 
     const all = mine(await (await GET(getReq())).json());
     expect(all).toHaveLength(2);
@@ -55,8 +57,8 @@ describe("GET /api/messages (dashboard read-only slice)", () => {
     // Cleanup: don't pollute the shared file-backed store for other tests.
     const { dbGet, dbPut } = await import("@/lib/cc/agent-store");
     for (const key of ["messages", "chats", "contacts"] as const) {
-      const rows = ((await dbGet(key)) as any[]).filter(
-        (x) =>
+      const rows = ((await dbGet(key)) as Array<Record<string, unknown>>).filter(
+        (x: Record<string, unknown>) =>
           x.external_id !== `${tag}-chat-1` &&
           x.external_id !== `${tag}-chat-2` &&
           x.external_id !== `${tag}-m-old` &&

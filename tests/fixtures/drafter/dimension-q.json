@@ -1,0 +1,16 @@
+{
+  "id": "dimension-q",
+  "message": "What are the dimensions?",
+  "ctx": {
+    "step1Done": true,
+    "step2Done": true,
+    "step3Done": false,
+    "step4Done": false,
+    "specAnswers": ["Dimensions: 10x8x6cm"],
+    "openChanges": 0,
+    "approach": "already_selling"
+  },
+  "expected": {
+    "action": "draft"
+  }
+}

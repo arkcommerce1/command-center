@@ -1,0 +1,16 @@
+{
+  "id": "pay-1",
+  "message": "We need 30% deposit by T/T.",
+  "ctx": {
+    "step1Done": true,
+    "step2Done": true,
+    "step3Done": false,
+    "step4Done": false,
+    "specAnswers": [],
+    "openChanges": 0,
+    "approach": "already_selling"
+  },
+  "expected": {
+    "action": "question"
+  }
+}

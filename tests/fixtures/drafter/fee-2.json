@@ -1,0 +1,16 @@
+{
+  "id": "fee-2",
+  "message": "We charge for samples, $20 each.",
+  "ctx": {
+    "step1Done": true,
+    "step2Done": true,
+    "step3Done": false,
+    "step4Done": false,
+    "specAnswers": [],
+    "openChanges": 0,
+    "approach": "already_selling"
+  },
+  "expected": {
+    "action": "fee"
+  }
+}

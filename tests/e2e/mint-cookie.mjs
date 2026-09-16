@@ -1,8 +1,9 @@
 // Mint a local Auth.js session cookie for Goal 7 browser e2e (no auth changes).
 // Run: AUTH_SECRET=... node tests/e2e/mint-cookie.mjs  -> tests/e2e/.e2e-cookie
 import { encode } from "@auth/core/jwt";
-import { promises as fs } from "fs";
-import path from "path";
+
+import { promises as fs } from "node:fs";
+import path from "node:path";
 
 const secret = process.env.AUTH_SECRET;
 if (!secret) throw new Error("AUTH_SECRET required");

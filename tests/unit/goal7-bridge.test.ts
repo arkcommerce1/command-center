@@ -19,7 +19,12 @@ describe("approval codes (Goal 7 WhatsApp shortcut)", () => {
   });
 
   it("parses S with free text, with or without version", () => {
-    expect(parseApprovalCode("S14 make it warmer")).toEqual({ action: "suggest", draft: 14, version: null, text: "make it warmer" });
+    expect(parseApprovalCode("S14 make it warmer")).toEqual({
+      action: "suggest",
+      draft: 14,
+      version: null,
+      text: "make it warmer",
+    });
     expect(parseApprovalCode("s14.2 use shorter bubbles")).toEqual({
       action: "suggest",
       draft: 14,
@@ -69,10 +74,21 @@ describe("approvability guards (SPEC §1.3)", () => {
       code: "not_latest",
     });
     expect(
-      checkApprovable({ draft: { ...draft, status: "sent" }, version, latestVersionNumber: 1, existingOutboxForVersion: 1 }),
+      checkApprovable({
+        draft: { ...draft, status: "sent" },
+        version,
+        latestVersionNumber: 1,
+        existingOutboxForVersion: 1,
+      }),
     ).toMatchObject({ ok: false, code: "draft_not_pending" });
     expect(
-      checkApprovable({ draft, version, latestVersionNumber: 1, existingOutboxForVersion: 0, expectedHash: "deadbeef" }),
+      checkApprovable({
+        draft,
+        version,
+        latestVersionNumber: 1,
+        existingOutboxForVersion: 0,
+        expectedHash: "deadbeef",
+      }),
     ).toMatchObject({ ok: false, code: "hash_mismatch" });
     expect(checkApprovable({ draft, version, latestVersionNumber: 1, existingOutboxForVersion: 1 })).toMatchObject({
       ok: false,

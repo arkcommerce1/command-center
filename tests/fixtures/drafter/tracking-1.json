@@ -1,0 +1,16 @@
+{
+  "id": "tracking-1",
+  "message": "Shipped, tracking SF1234567890123.",
+  "ctx": {
+    "step1Done": true,
+    "step2Done": true,
+    "step3Done": true,
+    "step4Done": false,
+    "specAnswers": [],
+    "openChanges": 0,
+    "approach": "already_selling"
+  },
+  "expected": {
+    "action": "draft"
+  }
+}

@@ -1,0 +1,16 @@
+{
+  "id": "specconfirm-2",
+  "message": "Spec confirmed, we will follow it exactly.",
+  "ctx": {
+    "step1Done": true,
+    "step2Done": true,
+    "step3Done": true,
+    "step4Done": false,
+    "specAnswers": [],
+    "openChanges": 0,
+    "approach": "already_selling"
+  },
+  "expected": {
+    "action": "draft"
+  }
+}

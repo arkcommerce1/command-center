@@ -1,0 +1,16 @@
+{
+  "id": "moq-1",
+  "message": "MOQ is 1000 pieces.",
+  "ctx": {
+    "step1Done": true,
+    "step2Done": true,
+    "step3Done": false,
+    "step4Done": false,
+    "specAnswers": [],
+    "openChanges": 0,
+    "approach": "already_selling"
+  },
+  "expected": {
+    "action": "question"
+  }
+}
