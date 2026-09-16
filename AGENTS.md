@@ -96,3 +96,32 @@ Keep a component inside its route until it is reused by another feature. Do not 
 - Include screenshots for new screens and material visual changes. Include mobile and dark-theme states when relevant.
 - Explain new reusable patterns or dependencies in the pull request.
 - Follow `CONTRIBUTING.md` for the contribution workflow.
+
+---
+
+0. Rules
+Copy this whole section into AGENTS.md in Goal 0.
+
+0.1 Build rules
+B1. Build only what this spec says. If something you need isn't here, stop and ask Haim. Never add a form, input field, setting, or confirmation step on your own.
+B2. Keep the existing stack: framework, database, hosting, and auth if present. Add new dependencies only where §1 names them.
+B3. Never touch Donna's live WhatsApp pairing, WhatsApp session folder, email credentials, or allowlists. Test messaging only in the CC Test WhatsApp group (Goal 2).
+B4. Every goal adds tests. npm run check (typecheck, lint, unit tests, and e2e tests for finished goals) must pass before a goal is done. Run it yourself and include the last lines of output in your final message.
+B5. Your final message for each goal lists every "Done when" line with its evidence: a passing test name, a file path, a log line, or a screenshot path. The goal judge reads only that message.
+B6. Secrets live in environment variables and are never committed. Never sign up for or pay for a service. Ask Haim for keys.
+B7. Database migrations only add. Never delete Haim's data.
+B8. Record every technical decision in docs/STACK.md under "Decisions".
+
+0.2 Product rules
+Enforce these in server code, not only in prompts.
+P1. No message goes into a chat that has a factory contact in it unless Haim approved that exact version. The server checks a content hash at send time. This includes openers, follow-ups, second and third tries, and the "@Yuki can you pay" message.
+P2. Agents may send automatically only to chats where every member is an Ours contact: Haim's DM, Yuki's DM, and internal groups.
+P3. Agents never negotiate. No prices, counteroffers, discounts, minimum orders, payment terms, volumes, or order commitments. Quotes are recorded for Haim only. The guardrail in §3.4 enforces this.
+P4. Agents may name our brands (AllSett Health, Refreshify, Everlasting) and say we already import and sell. They never state volumes unless Haim turned on "Can share volumes" for that factory.
+P5. Messages we send are English only. Messages we receive in another language are stored with an English translation.
+P6. Agents ask for a sample only after step 3 (Spec agreed) is done for that factory and product.
+P7. Sample fees always go to Haim as a decision. Agents never agree to a fee or argue about it.
+P8. Never pushy. Follow-up timing follows §3.6. Agents don't push factories on which day they ship.
+P9. No manual data entry. Agents fill in data from chats, email, the Amazon listing, and the approved spec. Haim can edit anything.
+P10. Automatic actions that don't send a factory message are logged in the activity log with Undo. This covers creating contacts, marking steps, merging contacts, and archiving.
+P11. Each factory and product pair is tracked on its own. A factory working on 3 products has 3 rows and gets 3 separate drafts.
