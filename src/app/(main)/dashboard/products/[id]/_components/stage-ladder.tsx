@@ -1,10 +1,12 @@
 "use client";
 
 import * as React from "react";
+
+import { Check, Circle, Clock } from "lucide-react";
+
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Check, Circle, Clock } from "lucide-react";
 
 export interface StageLadderProps {
   specApproved: boolean;
@@ -124,8 +126,25 @@ export function StageLadder(props: StageLadderProps) {
   if (currentIdx >= 0) stages[currentIdx].state = "current";
 
   // For stages 4 and 5, wire the action to the first factory that qualifies
-  const factoryForStep3 = props.factories.find((f) => f.fstage === "sample_requested" || f.fstage === "sample_yiwu" || f.fstage === "sample_ny" || f.fstage === "sample_confirmed" || f.fstage === "quoted" || f.fstage === "negotiating" || f.fstage === "ordered");
-  const factoryForStep4 = props.factories.find((f) => f.fstage === "sample_yiwu" || f.fstage === "sample_ny" || f.fstage === "sample_confirmed" || f.fstage === "quoted" || f.fstage === "negotiating" || f.fstage === "ordered");
+  const factoryForStep3 = props.factories.find(
+    (f) =>
+      f.fstage === "sample_requested" ||
+      f.fstage === "sample_yiwu" ||
+      f.fstage === "sample_ny" ||
+      f.fstage === "sample_confirmed" ||
+      f.fstage === "quoted" ||
+      f.fstage === "negotiating" ||
+      f.fstage === "ordered",
+  );
+  const factoryForStep4 = props.factories.find(
+    (f) =>
+      f.fstage === "sample_yiwu" ||
+      f.fstage === "sample_ny" ||
+      f.fstage === "sample_confirmed" ||
+      f.fstage === "quoted" ||
+      f.fstage === "negotiating" ||
+      f.fstage === "ordered",
+  );
 
   if (stages[3].state !== "done" && factoryForStep3) {
     stages[3].action = () => props.onStage4Action(factoryForStep3.id);
@@ -149,7 +168,9 @@ export function StageLadder(props: StageLadderProps) {
             <div key={s.n} className="flex items-stretch gap-2">
               {/* connector + icon */}
               <div className="flex flex-col items-center pt-1">
-                <div className={`flex h-7 w-7 items-center justify-center rounded-full border-2 ${stageColor(s.state)}`}>
+                <div
+                  className={`flex h-7 w-7 items-center justify-center rounded-full border-2 ${stageColor(s.state)}`}
+                >
                   {stageIcon(s.state)}
                 </div>
                 {i < stages.length - 1 && (

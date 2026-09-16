@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -11,8 +12,9 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sh
 import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
-import { StageLadder } from "./_components/stage-ladder";
+
 import { SpecFieldsSection } from "./_components/spec-fields-section";
+import { StageLadder } from "./_components/stage-ladder";
 
 const STAGE_LABEL: Record<string, string> = {
   idea: "Idea",
@@ -55,6 +57,7 @@ export default function ProductDetail({ params }: { params: Promise<{ id: string
   const [newF, setNewF] = React.useState("");
   const [draft, setDraft] = React.useState("");
   const [draftAi, setDraftAi] = React.useState(false);
+  const [upd, setUpd] = React.useState("");
   const [yukiPreviewOpen, setYukiPreviewOpen] = React.useState(false);
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState(false);
@@ -79,11 +82,19 @@ export default function ProductDetail({ params }: { params: Promise<{ id: string
   }, [load]);
 
   async function patch(body: any) {
-    await fetch(`/api/products/${id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    await fetch(`/api/products/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
     load();
   }
   async function fpatch(fid: string, body: any) {
-    await fetch(`/api/factories/${fid}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    await fetch(`/api/factories/${fid}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
     load();
   }
 
@@ -95,8 +106,13 @@ export default function ProductDetail({ params }: { params: Promise<{ id: string
   const canSendBrief = specDone && !!(p?.spec?.notes && p.spec.notes.trim());
 
   function buildYukiBriefContent() {
-    const skuLine = ((p as any).skus || []).map((r: any) => `${r.sku || "?"} ${r.size || ""} pack ${r.pack || "?"}: ${r.order || "?"} units`).join("\n");
-    const factoryLines = fs.filter((f) => f.active).map((f) => `- ${f.name}${f.contact ? ` (${f.contact})` : ""}`).join("\n");
+    const skuLine = ((p as any).skus || [])
+      .map((r: any) => `${r.sku || "?"} ${r.size || ""} pack ${r.pack || "?"}: ${r.order || "?"} units`)
+      .join("\n");
+    const factoryLines = fs
+      .filter((f) => f.active)
+      .map((f) => `- ${f.name}${f.contact ? ` (${f.contact})` : ""}`)
+      .join("\n");
     return [
       `Hi Yuki — brief for: ${p.name}${p.asin ? ` (ASIN ${p.asin})` : ""}`,
       `Master SKU: ${(p as any).masterSku || "TBD"}`,
@@ -150,8 +166,14 @@ export default function ProductDetail({ params }: { params: Promise<{ id: string
   const fbaSheetUrl = (p as any)?.fbaSheetUrl || null;
   const factoryCount = fs.length;
   const factoriesWithStep1 = fs.filter((f) => f.fstage && f.fstage !== "intro").length;
-  const factoriesWithStep3 = fs.filter((f) => ["sample_requested", "sample_yiwu", "sample_ny", "sample_confirmed", "quoted", "negotiating", "ordered"].includes(f.fstage)).length;
-  const factoriesWithStep4 = fs.filter((f) => ["sample_yiwu", "sample_ny", "sample_confirmed", "quoted", "negotiating", "ordered"].includes(f.fstage)).length;
+  const factoriesWithStep3 = fs.filter((f) =>
+    ["sample_requested", "sample_yiwu", "sample_ny", "sample_confirmed", "quoted", "negotiating", "ordered"].includes(
+      f.fstage,
+    ),
+  ).length;
+  const factoriesWithStep4 = fs.filter((f) =>
+    ["sample_yiwu", "sample_ny", "sample_confirmed", "quoted", "negotiating", "ordered"].includes(f.fstage),
+  ).length;
   const samplesPassedChina = 0; // Goal 10 will populate
   const samplesArrivedNY = 0;
   const samplesApproved = 0;
@@ -189,7 +211,9 @@ export default function ProductDetail({ params }: { params: Promise<{ id: string
   if (error || !p) {
     return (
       <div className="flex flex-col items-center gap-4 py-16">
-        <p className="text-muted-foreground" data-testid="product-error">Could not load this product.</p>
+        <p className="text-muted-foreground" data-testid="product-error">
+          Could not load this product.
+        </p>
         <Button variant="outline" onClick={load} data-testid="retry-btn">
           Retry
         </Button>
@@ -207,7 +231,9 @@ export default function ProductDetail({ params }: { params: Promise<{ id: string
           // eslint-disable-next-line @next/next/no-img-element
           <img src={p.imageUrl} alt="" className="h-16 w-16 rounded-lg border object-cover" />
         ) : (
-          <div className="flex h-16 w-16 items-center justify-center rounded-lg bg-muted text-xl text-muted-foreground">◈</div>
+          <div className="flex h-16 w-16 items-center justify-center rounded-lg bg-muted text-xl text-muted-foreground">
+            ◈
+          </div>
         )}
         <div className="min-w-0 flex-1">
           <input
@@ -277,7 +303,12 @@ export default function ProductDetail({ params }: { params: Promise<{ id: string
             </TableHeader>
             <TableBody>
               {fs.map((f) => (
-                <TableRow key={f.id} className={`cursor-pointer ${f.active ? "" : "opacity-50"}`} onClick={() => setOpenId(f.id)} data-testid={`factory-row-${f.id}`}>
+                <TableRow
+                  key={f.id}
+                  className={`cursor-pointer ${f.active ? "" : "opacity-50"}`}
+                  onClick={() => setOpenId(f.id)}
+                  data-testid={`factory-row-${f.id}`}
+                >
                   <TableCell className="font-medium">{f.name}</TableCell>
                   <TableCell>
                     <StageBadge v={f.fstage || "intro"} map={FSTAGE_LABEL} />
@@ -289,7 +320,9 @@ export default function ProductDetail({ params }: { params: Promise<{ id: string
                     <StageBadge v={f.quoteStatus} />
                   </TableCell>
                   <TableCell className="hidden text-xs text-muted-foreground md:table-cell">
-                    {f.lastContactAt ? new Date(f.lastContactAt).toLocaleDateString("en-US", { month: "numeric", day: "numeric" }) : "—"}
+                    {f.lastContactAt
+                      ? new Date(f.lastContactAt).toLocaleDateString("en-US", { month: "numeric", day: "numeric" })
+                      : "—"}
                   </TableCell>
                   <TableCell className="max-w-[220px] truncate text-xs text-muted-foreground">
                     {f.comments[0]?.text.slice(0, 60) || "—"}
@@ -337,7 +370,9 @@ export default function ProductDetail({ params }: { params: Promise<{ id: string
               ✨ AI spec draft
             </Button>
             <Button size="sm" variant="outline" asChild>
-              <a href={`/api/products/${id}/spec-pdf`} target="_blank" rel="noreferrer">⬇ Download spec PDF</a>
+              <a href={`/api/products/${id}/spec-pdf`} target="_blank" rel="noreferrer">
+                ⬇ Download spec PDF
+              </a>
             </Button>
             <Button
               size="sm"
@@ -362,7 +397,9 @@ export default function ProductDetail({ params }: { params: Promise<{ id: string
           )}
           {draft && (
             <div className="rounded-lg border border-violet-200 bg-violet-50/50 p-3">
-              <div className="mb-2 text-xs text-muted-foreground">{draftAi ? "🤖 AI draft" : "📝 Draft"} — edit, then approve:</div>
+              <div className="mb-2 text-xs text-muted-foreground">
+                {draftAi ? "🤖 AI draft" : "📝 Draft"} — edit, then approve:
+              </div>
               <Textarea value={draft} onChange={(e) => setDraft(e.target.value)} rows={10} className="mb-2 bg-white" />
               <div className="flex gap-2">
                 <Button
@@ -383,38 +420,74 @@ export default function ProductDetail({ params }: { params: Promise<{ id: string
           )}
           <div className="grid gap-1.5">
             <Label>Master SKU</Label>
-            <Input value={(p as any).masterSku || ""} onChange={(e) => setP({ ...p, masterSku: e.target.value } as any)} onBlur={(e) => patch({ masterSku: e.target.value })} placeholder="e.g. MB-1800" className="font-mono" />
+            <Input
+              value={(p as any).masterSku || ""}
+              onChange={(e) => setP({ ...p, masterSku: e.target.value } as any)}
+              onBlur={(e) => patch({ masterSku: e.target.value })}
+              placeholder="e.g. MB-1800"
+              className="font-mono"
+            />
           </div>
           <div>
             <Label>Child SKUs</Label>
             <Table>
-              <TableHeader><TableRow><TableHead>SKU</TableHead><TableHead>Size</TableHead><TableHead>Pack</TableHead><TableHead>Order units</TableHead><TableHead className="w-10"></TableHead></TableRow></TableHeader>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>SKU</TableHead>
+                  <TableHead>Size</TableHead>
+                  <TableHead>Pack</TableHead>
+                  <TableHead>Order units</TableHead>
+                  <TableHead className="w-10" />
+                </TableRow>
+              </TableHeader>
               <TableBody>
                 {((p as any).skus || []).map((r: any, i: number) => (
                   <TableRow key={r.id || i}>
                     {(["sku", "size", "pack", "order"] as const).map((k) => (
                       <TableCell key={k} className="p-1">
-                        <Input value={r[k] || ""} onChange={(e) => {
-                          const skus = [...((p as any).skus || [])];
-                          skus[i] = { ...skus[i], [k]: e.target.value };
-                          setP({ ...p, skus } as any);
-                        }} onBlur={() => patch({ skus: (p as any).skus })} className="h-8" />
+                        <Input
+                          value={r[k] || ""}
+                          onChange={(e) => {
+                            const skus = [...((p as any).skus || [])];
+                            skus[i] = { ...skus[i], [k]: e.target.value };
+                            setP({ ...p, skus } as any);
+                          }}
+                          onBlur={() => patch({ skus: (p as any).skus })}
+                          className="h-8"
+                        />
                       </TableCell>
                     ))}
                     <TableCell className="p-1">
-                      <button className="text-muted-foreground hover:text-destructive" onClick={() => {
-                        const skus = ((p as any).skus || []).filter((_: any, j: number) => j !== i);
-                        setP({ ...p, skus } as any); patch({ skus });
-                      }}>✕</button>
+                      <button
+                        className="text-muted-foreground hover:text-destructive"
+                        onClick={() => {
+                          const skus = ((p as any).skus || []).filter((_: any, j: number) => j !== i);
+                          setP({ ...p, skus } as any);
+                          patch({ skus });
+                        }}
+                      >
+                        ✕
+                      </button>
                     </TableCell>
                   </TableRow>
                 ))}
               </TableBody>
             </Table>
-            <Button size="sm" variant="outline" className="mt-1.5" onClick={() => {
-              const skus = [...((p as any).skus || []), { id: Math.random().toString(36).slice(2, 9), sku: "", size: "", pack: "", order: "" }];
-              setP({ ...p, skus } as any); patch({ skus });
-            }}>+ SKU row</Button>
+            <Button
+              size="sm"
+              variant="outline"
+              className="mt-1.5"
+              onClick={() => {
+                const skus = [
+                  ...((p as any).skus || []),
+                  { id: Math.random().toString(36).slice(2, 9), sku: "", size: "", pack: "", order: "" },
+                ];
+                setP({ ...p, skus } as any);
+                patch({ skus });
+              }}
+            >
+              + SKU row
+            </Button>
           </div>
           {(
             [
@@ -427,7 +500,11 @@ export default function ProductDetail({ params }: { params: Promise<{ id: string
               <Label>{label}</Label>
               {k === "fbaSheetUrl" ? (
                 <div className="flex gap-2">
-                  <Input value={p.fbaSheetUrl || ""} onChange={(e) => setP({ ...p, fbaSheetUrl: e.target.value })} onBlur={(e) => patch({ fbaSheetUrl: e.target.value })} />
+                  <Input
+                    value={p.fbaSheetUrl || ""}
+                    onChange={(e) => setP({ ...p, fbaSheetUrl: e.target.value })}
+                    onBlur={(e) => patch({ fbaSheetUrl: e.target.value })}
+                  />
                   {p.fbaSheetUrl && (
                     <Button size="sm" variant="outline" asChild>
                       <a href={p.fbaSheetUrl} target="_blank" rel="noreferrer">
@@ -437,7 +514,11 @@ export default function ProductDetail({ params }: { params: Promise<{ id: string
                   )}
                 </div>
               ) : (
-                <Input value={p.spec[k] || ""} onChange={(e) => setP({ ...p, spec: { ...p.spec, [k]: e.target.value } })} onBlur={(e) => patch({ spec: { [k]: e.target.value } })} />
+                <Input
+                  value={p.spec[k] || ""}
+                  onChange={(e) => setP({ ...p, spec: { ...p.spec, [k]: e.target.value } })}
+                  onBlur={(e) => patch({ spec: { [k]: e.target.value } })}
+                />
               )}
               {k === "sheetUrl" && p.spec.sheetUrl && (
                 <Button size="sm" variant="outline" className="w-fit" asChild>
@@ -448,7 +529,9 @@ export default function ProductDetail({ params }: { params: Promise<{ id: string
               )}
             </div>
           ))}
-          <div className="text-xs text-muted-foreground">Last update{p.spec.lastUpdate ? `: ${p.spec.lastUpdate}` : " — none yet"}</div>
+          <div className="text-xs text-muted-foreground">
+            Last update{p.spec.lastUpdate ? `: ${p.spec.lastUpdate}` : " — none yet"}
+          </div>
 
           <div className="rounded-lg border p-3">
             <div className="mb-2 text-sm font-semibold">Structured spec fields</div>
@@ -462,20 +545,35 @@ export default function ProductDetail({ params }: { params: Promise<{ id: string
           </div>
 
           <Input
-            value={draft}
-            onChange={(e) => setDraft(e.target.value)}
+            value={upd}
+            onChange={(e) => setUpd(e.target.value)}
             placeholder="Note today's spec update… (auto-dated)"
             onKeyDown={(e) => {
-              if (e.key === "Enter" && (e.target as HTMLInputElement).value.trim()) {
-                const v = (e.target as HTMLInputElement).value;
-                patch({ spec: { lastUpdate: `${new Date().toLocaleDateString("en-US", { month: "numeric", day: "numeric" })} ${v.trim()}` } });
-                setDraft("");
+              if (e.key === "Enter" && upd.trim()) {
+                patch({
+                  spec: {
+                    lastUpdate: `${new Date().toLocaleDateString("en-US", { month: "numeric", day: "numeric" })} ${upd.trim()}`,
+                  },
+                });
+                setUpd("");
               }
             }}
           />
           <div className="grid grid-cols-2 gap-2">
-            <Input value={p.asin || ""} onChange={(e) => setP({ ...p, asin: e.target.value.toUpperCase() })} onBlur={(e) => patch({ asin: e.target.value.toUpperCase() })} placeholder="ASIN" maxLength={10} className="font-mono uppercase" />
-            <Input value={p.imageUrl || ""} onChange={(e) => setP({ ...p, imageUrl: e.target.value })} onBlur={(e) => patch({ imageUrl: e.target.value })} placeholder="Photo URL" />
+            <Input
+              value={p.asin || ""}
+              onChange={(e) => setP({ ...p, asin: e.target.value.toUpperCase() })}
+              onBlur={(e) => patch({ asin: e.target.value.toUpperCase() })}
+              placeholder="ASIN"
+              maxLength={10}
+              className="font-mono uppercase"
+            />
+            <Input
+              value={p.imageUrl || ""}
+              onChange={(e) => setP({ ...p, imageUrl: e.target.value })}
+              onBlur={(e) => patch({ imageUrl: e.target.value })}
+              placeholder="Photo URL"
+            />
           </div>
 
           <Button
@@ -531,7 +629,9 @@ export default function ProductDetail({ params }: { params: Promise<{ id: string
           <DialogHeader>
             <DialogTitle>Preview Yuki brief {lastBrief ? `(v${(lastBrief.version || 0) + 1})` : "(v1)"}</DialogTitle>
           </DialogHeader>
-          <pre className="whitespace-pre-wrap rounded-md border bg-muted/40 p-3 font-mono text-xs">{buildYukiBriefContent()}</pre>
+          <pre className="whitespace-pre-wrap rounded-md border bg-muted/40 p-3 font-mono text-xs">
+            {buildYukiBriefContent()}
+          </pre>
           <DialogFooter>
             <Button variant="outline" onClick={() => setYukiPreviewOpen(false)}>
               Cancel

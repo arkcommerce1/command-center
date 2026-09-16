@@ -35,10 +35,10 @@ logger = logging.getLogger(__name__)
 BASE_URL = "https://command-center-review-tau.vercel.app"
 BRIDGE_URL = "http://127.0.0.1:3001"
 
-# Job types this runner executes inline. contacts (Goal 3) and organize
-# (Goal 6) run deterministically in code (see cc-contacts / cc-organizer
-# skills): no LLM involved.
-HANDLED_JOB_TYPES = {"cc-echo", "contacts", "organize"}
+# Job types this runner executes inline. contacts (Goal 3), organize
+# (Goal 6), and cc-followups (Goal 9) run deterministically in code (see
+# cc-contacts / cc-organizer / cc-followups skills): no LLM involved.
+HANDLED_JOB_TYPES = {"cc-echo", "contacts", "organize", "cc-followups"}
 
 # Set to "1" to build organize request bodies without performing any
 # API call (used by fixture simulations; also honored per-payload via
@@ -1075,11 +1075,65 @@ def _run_job(job: dict) -> None:
             })
         elif job.get("type") == "contacts":
             _run_contacts_job(job)  # deterministic, no LLM (Goal 3)
+        elif job.get("type") == "cc-followups":
+            _run_followups_job(job)  # deterministic, no LLM (Goal 9)
         _api("POST", f"/api/agent/jobs/{jid}/done", {})
         logger.info("command_center: job %s (%s) done", jid, job.get("type"))
     except Exception as exc:
         logger.warning("command_center: job %s failed: %s", jid, exc)
         _api("POST", f"/api/agent/jobs/{jid}/failed", {"error": str(exc)[:500]})
+
+
+# --------------------------------------------------- followups (Goal 9) ---
+# Deterministic follow-up processor (cc-followups skill). No LLM: the
+# tick route already computed importance + sendAfter; the poller creates
+# a follow-up draft (they_owe) or raises the question card (we_owe).
+
+def _run_followups_job(job: dict) -> None:
+    """Process a cc-followups job (Goal 9, SPEC §3.6).
+
+    Payload: {factoryProductId, openItemId, importance, sendAfter, direction}
+    - they_owe: create a follow-up draft via POST /api/agent/drafts with
+      the send-timing buttons (kind: followup). The draft route runs the
+      guardrail server-side.
+    - we_owe: the tick route already raised the question card to High and
+      notified Haim; the poller creates no factory draft.
+    """
+    payload = job.get("payload") or {}
+    fp = str(payload.get("factoryProductId", "") or "")
+    open_item_id = str(payload.get("openItemId", "") or "")
+    importance = str(payload.get("importance", "Low") or "Low")
+    send_after = payload.get("sendAfter", 0)
+    direction = str(payload.get("direction", "they_owe") or "they_owe")
+
+    if direction == "they_owe" and fp:
+        # Build a short, warm, non-pushy follow-up. Never names a ship day.
+        bubbles = [
+            "Hi — just checking in on this.",
+            "Could you let us know when you have an update?",
+        ]
+        body = {
+            "factory_product_id": fp,
+            "chat_id": "",  # resolved server-side from the product's chats
+            "kind": "followup",
+            "reason": f"§3.6 follow-up — overdue open item {open_item_id}",
+            "bubbles": bubbles,
+            "source": "ai",
+        }
+        res = _api("POST", "/api/agent/drafts", body)
+        logger.info(
+            "command_center: followups job %s created draft for %s "
+            "(importance=%s) ok=%s",
+            job.get("id"), fp, importance, res is not None,
+        )
+    else:
+        # we_owe: no factory draft. The tick route already raised the
+        # question card and notified Haim.
+        logger.info(
+            "command_center: followups job %s we_owe %s — no draft, "
+            "question card already raised",
+            job.get("id"), fp,
+        )
 
 
 def _bridge_send(chat_id: str, text: str):

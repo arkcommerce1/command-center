@@ -1,11 +1,18 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { agentAuth, agentBody } from "@/lib/cc/agent-auth";
-import { dbInsert } from "@/lib/cc/agent-store";
+import { dbFind, dbInsert } from "@/lib/cc/agent-store";
+import type { Shipment } from "@/lib/cc/types";
 
 export const dynamic = "force-dynamic";
 
-// POST /api/agent/shipments
+// GET /api/agent/shipments — list all shipments with leg, tracking, carrier, status, eta, events.
+export async function GET() {
+  const shipments = (await dbFind("shipments", () => true)) as Shipment[];
+  return NextResponse.json({ shipments });
+}
+
+// POST /api/agent/shipments — create a shipment.
 export async function POST(req: NextRequest) {
   const auth = agentAuth(req);
   if (auth) return auth;

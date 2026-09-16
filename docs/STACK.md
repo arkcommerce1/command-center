@@ -428,3 +428,99 @@ Buttons/controls (from reading `src/app/(main)/dashboard/products/[id]/page.tsx`
    embeds snapshots); confirm no poison-loop.
 10. Watch for recurrence of the transient `POST /api/agent/jobs/claim
     HTTP 500` (seen 16:11:35 UTC pre-restart).
+
+## 10. Goal 10 samples + tracking (Sep 16, 2026)
+
+- **Sample stage transitions are pure functions.** `src/lib/cc/sample-stages.ts`
+  exports `onTrackingNumber`, `onChinaDelivered`, `onYukiPass`, `onYukiProblem`,
+  `onBoxConfirmed`, `onNYDelivered`, `onSuggestChange`, `onHaimApprove`,
+  `onHaimReject` — each takes the current sample(s) + an event and returns the
+  next state (sample patch + any new shipment/question/draft/notification).
+  No I/O; testable in isolation. The Agent API routes call these after
+  persisting the triggering event. Tests in `tests/unit/samples.test.ts` cover
+  every §3.5 transition with mocked data.
+- **GET /api/agent/samples** added (no agentAuth — browsers carry no bearer;
+  proxy.ts login-gates). Returns all samples enriched with their shipments
+  (both legs). POST preserved (dynamic zod import to avoid breaking existing
+  callers).
+- **GET /api/agent/shipments** added. Returns all shipments with leg, tracking,
+  carrier, status, eta, events.
+- **17TRACK webhook** at `POST /api/webhooks/17track` — verifies HMAC-SHA256
+  signature from `CC_17TRACK_KEY` env against the raw body, then updates
+  matching shipments (status, last_event, eta, events, carrier). 503 when key
+  not configured. No login gate (proxy.ts skips /api/webhooks/*).
+- **Tick tracking-refresh stub** — `refreshTracking()` in tick route checks
+  `CC_17TRACK_KEY`; if set, logs in-transit shipments for refresh; if not, logs
+  `tracking-refresh:skipped (CC_17TRACK_KEY not set)`. No real 17TRACK API
+  calls without a key (B6).
+- **Samples page** at `src/app/(main)/dashboard/samples/page.tsx` — two tabs
+  (China / New York). China tab: one row per sample with tracking, carrier
+  status, arrival date, Yuki check (pass/problem/waiting), photos, stage. New
+  York tab: ready-to-ship list, box tracking, in-transit, received, decision
+  badge. Reads from GET /api/agent/samples + GET /api/agent/shipments.
+- **Nav item** added to `sidebar-items.ts` between Products and Messages
+  (lucide `Package` icon, url `/dashboard/samples`).
+- **No new dependencies.** Uses existing Tabs, Table, Card, Badge, Button,
+  Skeleton from `src/components/ui/`.
+- **`npm run build` green; `npx vitest run` 14 files / 202 tests green.**
+  Nothing committed/pushed/deployed.
+
+## 11. Goal 9 follow-ups (Sep 16, 2026)
+
+- **Pure planner `planFollowups`** in `src/lib/cc/followups.ts` — no I/O,
+  fully unit-testable. Takes `now`, open-item snapshots, the set of
+  already-queued cc-followups job IDs, and the set of factory_product_ids
+  active in the last 7 days. Returns a `FollowupPlan` with queueJobs,
+  archiveRows, raiseQuestions, notifyHaim, incrementFollowups arrays.
+- **Due clock.** A they_owe `question` is due after 24 business-day hours;
+  a `sample_tracking` item after 72 (3 business days). Uses
+  `last_followup_at` when `followups_sent > 0` (so follow-ups are spaced
+  24 business hours apart), else `opened_at`. `addBusinessHours` pushes past
+  weekends + Golden Week with time-of-day preserved.
+- **Importance rating** (set by the tick, carried in the job payload):
+  High when `kind === sample_tracking` (blocks a sample); Medium when the
+  factory was active in the last 7 days (a message linked to that
+  `factory_product_id` exists in the last 7 days); Low otherwise.
+- **Send timing.** `sendAfter` = `now` when inside the 9:30–18:00 CST
+  window (`isBusinessTime`), else `nextBusinessSlot(now)` (next 9:30 CST
+  business day). The poller passes it through as the draft/outbox
+  `send_after`; the outbox is not claimable until then.
+- **Archiving.** After 2 unanswered follow-ups (`followups_sent >= 2` and
+  still overdue), the tick archives the row: sets `resolved_at` + a
+  `resolution: "archived_2_unanswered"` on the open item, logs an
+  undoable activity entry (`archive.followup`), and queues a Haim
+  notification. The agent-store has no `factoryProducts` collection, so
+  the tick updates the open item's resolution rather than the
+  factory_product row's `archived_at` directly — Undo restores the open
+  item. The spec says "archive that factory_product row"; when a
+  factory_product store is added to the agent API, the tick should also
+  set `archived_at` there.
+- **we_owe: no factory draft.** For a `we_owe` item overdue after 24
+  business hours, the tick raises all open questions for that
+  `factory_product_id` to `importance: "high"` and queues a Haim
+  notification ("waiting on you"). No cc-followups job is queued, no
+  factory draft.
+- **Tick route** (`src/app/api/agent/tick/route.ts`) replaced the stub
+  24h wall-clock check with the pure planner. It collects open items,
+  recent messages (last 7 days) for active-factory detection, and
+  existing queued cc-followups jobs to avoid duplicates; then executes
+  the plan: inserts `cc-followups` agent jobs, updates questions to
+  High, archives + logs + notifies, and increments `followups_sent` +
+  `last_followup_at`.
+- **Plugin poller** (`hermes/plugins/command_center/__init__.py`):
+  `HANDLED_JOB_TYPES` now includes `"cc-followups"`. `_run_followups_job`
+  creates a `followup` draft via `POST /api/agent/drafts` for `they_owe`
+  (short, warm, non-pushy bubbles; guardrail runs server-side); for
+  `we_owe` it logs only (the tick already raised the question card and
+  notified Haim). No LLM.
+- **Skill** `hermes/skills/cc-followups/SKILL.md` (§1.5 frontmatter:
+  name, description ≤60 chars, version, metadata.hermes tags + category;
+  sections: When to Use, Procedure, Pitfalls, Verification).
+- **Tests** `tests/unit/followups.test.ts` — 15 tests: weekend skip,
+  Golden Week skip (not due Oct 5, due Oct 8), Friday 5pm → Monday 5pm,
+  2nd unanswered follow-up archives the row, we_owe raises to High with
+  no factory draft, importance High/Medium/Low, sendAfter in/out of
+  business hours, duplicate-queue skip, resolved-item skip, 1st vs 2nd
+  follow-up (0→1, 1→2 both queue, 2→archive).
+- **`npm run build` green; `npx vitest run` 15 files / 217 tests green.**
+  Nothing committed/pushed/deployed.

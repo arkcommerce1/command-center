@@ -1,7 +1,9 @@
 "use client";
 
-import Link from "next/link";
 import * as React from "react";
+
+import Link from "next/link";
+
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -27,9 +29,14 @@ interface Product {
 }
 
 const STAGE_LABEL: Record<string, string> = {
-  idea: "Idea", spec: "Spec Sheet", sourcing: "Sourcing (Yuki)",
-  outreach: "Outreach", sampling: "Sampling", quotation: "Quotation",
-  live: "Live", dead: "Dead",
+  idea: "Idea",
+  spec: "Spec Sheet",
+  sourcing: "Sourcing (Yuki)",
+  outreach: "Outreach",
+  sampling: "Sampling",
+  quotation: "Quotation",
+  live: "Live",
+  dead: "Dead",
 };
 
 const NEXT_STEP: Record<string, string> = {
@@ -196,7 +203,12 @@ export default function ProductsPage() {
             maxLength={10}
             className="font-mono uppercase sm:max-w-[150px]"
           />
-          <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Product name (optional if ASIN)…" className="flex-1" />
+          <Input
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="Product name (optional if ASIN)…"
+            className="flex-1"
+          />
           <Button onClick={add} disabled={busy}>
             {busy ? "…" : "Add"}
           </Button>
@@ -228,12 +240,24 @@ export default function ProductsPage() {
                         <Skeleton className="h-4 w-32" />
                       </div>
                     </TableCell>
-                    <TableCell><Skeleton className="h-5 w-16" /></TableCell>
-                    <TableCell><Skeleton className="h-4 w-20" /></TableCell>
-                    <TableCell><Skeleton className="h-4 w-16" /></TableCell>
-                    <TableCell><Skeleton className="h-4 w-8" /></TableCell>
-                    <TableCell><Skeleton className="h-4 w-20" /></TableCell>
-                    <TableCell><Skeleton className="h-4 w-28" /></TableCell>
+                    <TableCell>
+                      <Skeleton className="h-5 w-16" />
+                    </TableCell>
+                    <TableCell>
+                      <Skeleton className="h-4 w-20" />
+                    </TableCell>
+                    <TableCell>
+                      <Skeleton className="h-4 w-16" />
+                    </TableCell>
+                    <TableCell>
+                      <Skeleton className="h-4 w-8" />
+                    </TableCell>
+                    <TableCell>
+                      <Skeleton className="h-4 w-20" />
+                    </TableCell>
+                    <TableCell>
+                      <Skeleton className="h-4 w-28" />
+                    </TableCell>
                     <TableCell className="text-right">
                       <Skeleton className="ml-auto h-8 w-16" />
                     </TableCell>
@@ -251,7 +275,8 @@ export default function ProductsPage() {
                   </TableCell>
                 </TableRow>
               )}
-              {!loading && !error &&
+              {!loading &&
+                !error &&
                 filtered.map((p) => (
                   <TableRow key={p.id}>
                     <TableCell>
@@ -260,7 +285,9 @@ export default function ProductsPage() {
                           // eslint-disable-next-line @next/next/no-img-element
                           <img src={p.imageUrl} alt="" className="h-9 w-9 rounded-md border object-cover" />
                         ) : (
-                          <div className="flex h-9 w-9 items-center justify-center rounded-md bg-muted text-muted-foreground">◈</div>
+                          <div className="flex h-9 w-9 items-center justify-center rounded-md bg-muted text-muted-foreground">
+                            ◈
+                          </div>
                         )}
                         <span>
                           <span className="block font-medium">{p.name}</span>
@@ -293,7 +320,11 @@ export default function ProductsPage() {
               {!loading && !error && filtered.length === 0 && (
                 <TableRow>
                   <TableCell colSpan={8} className="text-center text-muted-foreground" data-testid="products-empty">
-                    {filter === "ideas" ? "No ideas yet." : filter === "active" ? "No active products yet." : "No products yet."}
+                    {filter === "ideas"
+                      ? "No ideas yet."
+                      : filter === "active"
+                        ? "No active products yet."
+                        : "No products yet."}
                   </TableCell>
                 </TableRow>
               )}

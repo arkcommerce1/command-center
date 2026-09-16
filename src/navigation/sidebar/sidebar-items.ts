@@ -4,6 +4,7 @@ import {
   Factory,
   type LucideIcon,
   MessageSquare,
+  Package,
   Settings,
   ShoppingBag,
   UserRound,
@@ -75,6 +76,12 @@ export const sidebarItems: NavGroup[] = [
         title: "Products",
         url: "/dashboard/products",
         icon: ShoppingBag,
+      },
+      {
+        id: "samples",
+        title: "Samples",
+        url: "/dashboard/samples",
+        icon: Package,
       },
       {
         id: "messages",

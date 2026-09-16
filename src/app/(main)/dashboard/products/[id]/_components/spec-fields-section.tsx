@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -46,7 +47,8 @@ function SourceBadge({ source }: { source: SpecFieldSource }) {
 
 function normField(f: Partial<SpecField> | undefined | null): SpecField {
   const tag: SpecFieldTag = f && (f.tag === "flexible" || f.tag === "open" || f.tag === "locked") ? f.tag : "locked";
-  const source: SpecFieldSource = f && (f.source === "image" || f.source === "inferred" || f.source === "listing") ? f.source : "inferred";
+  const source: SpecFieldSource =
+    f && (f.source === "image" || f.source === "inferred" || f.source === "listing") ? f.source : "inferred";
   return {
     id: (f && f.id) || Math.random().toString(36).slice(2, 10),
     label: (f && f.label) || "",
@@ -108,7 +110,13 @@ export function SpecFieldsSection({
     if (readOnly || !newLabel.trim()) return;
     setFields((prev) => [
       ...prev,
-      { id: Math.random().toString(36).slice(2, 10), label: newLabel.trim(), value: newValue.trim(), source: "inferred", tag: "locked" },
+      {
+        id: Math.random().toString(36).slice(2, 10),
+        label: newLabel.trim(),
+        value: newValue.trim(),
+        source: "inferred",
+        tag: "locked",
+      },
     ]);
     setNewLabel("");
     setNewValue("");
@@ -189,9 +197,15 @@ export function SpecFieldsSection({
         ...proposal.after.map((f) => {
           const prior = beforeById.get(f.id);
           const changed = !prior || prior.value !== f.value || prior.tag !== f.tag || prior.label !== f.label;
-          return { field: f, prior: prior || null, kind: prior ? (changed ? "changed" : "unchanged") : "added" as const };
+          return {
+            field: f,
+            prior: prior || null,
+            kind: prior ? (changed ? "changed" : "unchanged") : ("added" as const),
+          };
         }),
-        ...proposal.before.filter((f) => !afterIds.has(f.id)).map((f) => ({ field: f, prior: f, kind: "removed" as const })),
+        ...proposal.before
+          .filter((f) => !afterIds.has(f.id))
+          .map((f) => ({ field: f, prior: f, kind: "removed" as const })),
       ]
     : [];
 
@@ -200,7 +214,9 @@ export function SpecFieldsSection({
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex items-center gap-2">
           <span className="text-sm font-medium">
-            {viewing ? `Viewing v${viewing.version} (read-only)` : `Current (v${specVersion || 0}${dirty ? " · unsaved" : ""})`}
+            {viewing
+              ? `Viewing v${viewing.version} (read-only)`
+              : `Current (v${specVersion || 0}${dirty ? " · unsaved" : ""})`}
           </span>
           {versionsDesc.length > 0 && (
             <Select
@@ -235,10 +251,15 @@ export function SpecFieldsSection({
 
       <div className="flex flex-col divide-y rounded-lg border">
         {displayFields.length === 0 && (
-          <div className="p-3 text-sm text-muted-foreground">No structured fields yet. Add one below, or use the AI edit bar.</div>
+          <div className="p-3 text-sm text-muted-foreground">
+            No structured fields yet. Add one below, or use the AI edit bar.
+          </div>
         )}
         {displayFields.map((f) => (
-          <div key={f.id} className={`flex flex-wrap items-center gap-2 p-2 ${f.value === "Needs input" ? "bg-amber-50/50" : ""}`}>
+          <div
+            key={f.id}
+            className={`flex flex-wrap items-center gap-2 p-2 ${f.value === "Needs input" ? "bg-amber-50/50" : ""}`}
+          >
             <div className="min-w-[110px] text-sm font-medium">{f.label || "—"}</div>
             <SourceBadge source={f.source} />
             {readOnly ? (
@@ -267,7 +288,11 @@ export function SpecFieldsSection({
               </Select>
             )}
             {!readOnly && (
-              <button className="text-muted-foreground hover:text-destructive" onClick={() => removeField(f.id)} title="Remove field">
+              <button
+                className="text-muted-foreground hover:text-destructive"
+                onClick={() => removeField(f.id)}
+                title="Remove field"
+              >
                 ✕
               </button>
             )}
@@ -277,8 +302,18 @@ export function SpecFieldsSection({
 
       {!readOnly && (
         <div className="flex flex-wrap items-center gap-2">
-          <Input value={newLabel} onChange={(e) => setNewLabel(e.target.value)} placeholder="Field label (e.g. Color)" className="h-8 w-[160px]" />
-          <Input value={newValue} onChange={(e) => setNewValue(e.target.value)} placeholder="Value" className="h-8 flex-1 min-w-[140px]" />
+          <Input
+            value={newLabel}
+            onChange={(e) => setNewLabel(e.target.value)}
+            placeholder="Field label (e.g. Color)"
+            className="h-8 w-[160px]"
+          />
+          <Input
+            value={newValue}
+            onChange={(e) => setNewValue(e.target.value)}
+            placeholder="Value"
+            className="h-8 flex-1 min-w-[140px]"
+          />
           <Button size="sm" variant="outline" onClick={addField} disabled={!newLabel.trim()}>
             + Field
           </Button>
@@ -287,7 +322,9 @@ export function SpecFieldsSection({
 
       {proposal && (
         <div className="rounded-lg border border-violet-200 bg-violet-50/50 p-3">
-          <div className="mb-2 text-xs text-muted-foreground">🤖 AI proposed change — review before/after, then Accept or Reject:</div>
+          <div className="mb-2 text-xs text-muted-foreground">
+            🤖 AI proposed change — review before/after, then Accept or Reject:
+          </div>
           <div className="flex flex-col gap-1.5">
             {diffRows.map((row, i) => (
               <div key={i} className="rounded-md border bg-white p-2 text-xs">
@@ -295,21 +332,35 @@ export function SpecFieldsSection({
                   {row.field.label}{" "}
                   <span
                     className={
-                      row.kind === "added" ? "text-emerald-600" : row.kind === "removed" ? "text-red-600" : row.kind === "changed" ? "text-amber-600" : "text-muted-foreground"
+                      row.kind === "added"
+                        ? "text-emerald-600"
+                        : row.kind === "removed"
+                          ? "text-red-600"
+                          : row.kind === "changed"
+                            ? "text-amber-600"
+                            : "text-muted-foreground"
                     }
                   >
                     ({row.kind})
                   </span>
                 </div>
                 {row.kind === "removed" ? (
-                  <div className="line-through text-muted-foreground">{row.prior?.value} · {row.prior && TAG_LABEL[row.prior.tag]}</div>
+                  <div className="line-through text-muted-foreground">
+                    {row.prior?.value} · {row.prior && TAG_LABEL[row.prior.tag]}
+                  </div>
                 ) : row.kind === "changed" && row.prior ? (
                   <div className="flex flex-col gap-0.5">
-                    <div className="text-muted-foreground line-through">{row.prior.value} · {TAG_LABEL[row.prior.tag]}</div>
-                    <div>{row.field.value} · {TAG_LABEL[row.field.tag]}</div>
+                    <div className="text-muted-foreground line-through">
+                      {row.prior.value} · {TAG_LABEL[row.prior.tag]}
+                    </div>
+                    <div>
+                      {row.field.value} · {TAG_LABEL[row.field.tag]}
+                    </div>
                   </div>
                 ) : (
-                  <div>{row.field.value} · {TAG_LABEL[row.field.tag]}</div>
+                  <div>
+                    {row.field.value} · {TAG_LABEL[row.field.tag]}
+                  </div>
                 )}
               </div>
             ))}
