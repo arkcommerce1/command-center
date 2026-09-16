@@ -11,6 +11,7 @@ interface Product {
   id: string; name: string; stage: string;
   productStatus: "queue" | "active" | "completed";
   estimatedMonthlySales: number;
+  averagePricePerUnit: number;
   createdAt: number;
 }
 
@@ -30,6 +31,7 @@ export default function DashboardPage() {
         stage: p.stage,
         productStatus: p.productStatus || "queue",
         estimatedMonthlySales: p.estimatedMonthlySales || 0,
+        averagePricePerUnit: p.averagePricePerUnit || 0,
         createdAt: p.createdAt || 0,
       })));
     } catch { setProducts([]); }
