@@ -3,6 +3,7 @@ import {
   CheckSquare,
   Factory,
   type LucideIcon,
+  MessageSquare,
   Settings,
   ShoppingBag,
   UserRound,
@@ -74,6 +75,12 @@ export const sidebarItems: NavGroup[] = [
         title: "Products",
         url: "/dashboard/products",
         icon: ShoppingBag,
+      },
+      {
+        id: "messages",
+        title: "Messages",
+        url: "/dashboard/messages",
+        icon: MessageSquare,
       },
       {
         id: "contacts",
