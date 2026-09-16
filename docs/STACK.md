@@ -540,3 +540,12 @@ Buttons/controls (from reading `src/app/(main)/dashboard/products/[id]/page.tsx`
 - **Editable factories table**: All columns (Name, Stage, Sample, Quote, Contact, Last note) are now editable inline. Row click opens factory detail Sheet.
 - **ASIN removed from spec PDF**: No ASIN in the spec sheet or send-yuki-pdf.
 - **"Needs input" removed from spec display**: Fields with no value are skipped entirely.
+
+## Round 3 — Spec PDF Rebuild + Send Yuki Brief Pop-up
+
+### Decisions
+- **Spec PDF rebuilt**: Shared generator (`src/lib/cc/spec-pdf-generator.ts`) used by both Download and Send Yuki. A4 layout with: product image (left), name + Master SKU + version (right), two-column spec fields table with alternating row shading, SKU breakdown as real table with column headers, footer with page numbers.
+- **CJK font embedding**: Extracted NotoSansSC TTF from TTC on VPS using fonttools, embedded via @pdf-lib/fontkit. Falls back to Helvetica if font files not found.
+- **Image fetch**: Tries Node fetch first, falls back to curl for images that fail with ECONNREFUSED.
+- **Send Yuki Brief pop-up**: Replaces one-click send. Pop-up has editable message pre-filled with product name, PDF preview iframe, "Include order quantity" checkbox (unchecked by default), Send + Cancel.
+- **pg-adapter fix**: `@vercel/postgres` was still being imported in store.ts and agent-store.ts — replaced with local `pg-adapter.ts` using `pg.Pool`. This was the root cause of all API 500 errors on the VPS.
