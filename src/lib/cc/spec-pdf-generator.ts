@@ -22,19 +22,27 @@ interface Product {
 async function fetchImageBytes(url: string): Promise<{ bytes: Uint8Array; kind: "jpg" | "png" } | null> {
   if (!url) return null;
   try {
-    const r = await fetch(url, { signal: AbortSignal.timeout(15000) });
+    const r = await fetch(url, { signal: AbortSignal.timeout(15000), redirect: "follow" });
     if (!r.ok) return null;
     const buf = new Uint8Array(await r.arrayBuffer());
     const ct = r.headers.get("content-type") || "";
     if (ct.includes("png") || url.toLowerCase().endsWith(".png")) return { bytes: buf, kind: "png" };
-    if (ct.includes("webp")) {
-      // WebP not supported by pdf-lib — would need conversion
-      // For now skip WebP images
-      return null;
-    }
+    if (ct.includes("webp")) return null;
     return { bytes: buf, kind: "jpg" };
   } catch {
-    return null;
+    // Fallback: try curl for image download
+    try {
+      const { execSync } = await import("child_process");
+      const tmpPath = `/tmp/spec-img-${Date.now()}.jpg`;
+      execSync(`curl -s -m 15 -o ${tmpPath} "${url.replace(/"/g, "")}"`);
+      const fs = await import("fs/promises");
+      const buf = await fs.readFile(tmpPath);
+      await fs.unlink(tmpPath).catch(() => {});
+      if (buf.length > 100) return { bytes: new Uint8Array(buf), kind: "jpg" };
+      return null;
+    } catch {
+      return null;
+    }
   }
 }
 
@@ -210,7 +218,7 @@ export async function generateSpecPdf(product: Product, options: SpecPdfOptions 
         vy -= 12;
       }
 
-      // Tag badge (small, right)
+      // Tag badge (small, right) — only show for non-locked tags
       if (tag && tag !== "locked") {
         page.drawText(`[${tag}]`, { x: PAGE_W - MARGIN - 40, y: y - 4, size: 7, font, color: rgb(0.5, 0.5, 0.5) });
       }
