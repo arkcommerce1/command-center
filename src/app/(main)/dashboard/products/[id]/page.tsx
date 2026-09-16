@@ -172,6 +172,9 @@ export default function ProductDetail({ params }: { params: Promise<{ id: string
   const [viewVersion, setViewVersion] = React.useState<string>("current");
   const [upd, setUpd] = React.useState("");
   const [yukiPreviewOpen, setYukiPreviewOpen] = React.useState(false);
+  const [yukiSending, setYukiSending] = React.useState(false);
+  const [yukiSendResult, setYukiSendResult] = React.useState<{ success?: boolean; sentAt?: number; messageId?: string; error?: string } | null>(null);
+  const [includeOrderQty, setIncludeOrderQty] = React.useState(false);
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState(false);
 
@@ -624,24 +627,57 @@ export default function ProductDetail({ params }: { params: Promise<{ id: string
             <Button
               size="sm"
               variant="outline"
-              disabled={!canSendBrief}
-              title={!canSendBrief ? "Approve the spec (Build spec sheet + notes) before sending to Yuki" : undefined}
-              onClick={() => setYukiPreviewOpen(true)}
+              disabled={!specApproved}
+              title={!specApproved ? "Approve a spec first." : undefined}
+              onClick={async () => {
+                if (!specApproved) return;
+                setYukiSending(true);
+                setYukiSendResult(null);
+                try {
+                  const r = await fetch(`/api/products/${id}/send-yuki-pdf`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ includeOrderQty }),
+                  });
+                  const d = await r.json();
+                  if (!r.ok || d.error) {
+                    setYukiSendResult({ error: d.error || "Send failed" });
+                  } else {
+                    setYukiSendResult({ success: true, sentAt: d.sentAt, messageId: d.messageId });
+                  }
+                } catch (e: any) {
+                  setYukiSendResult({ error: e?.message || "Network error" });
+                } finally {
+                  setYukiSending(false);
+                }
+              }}
               data-testid="send-yuki-btn"
             >
-              {lastBrief ? "Resend Yuki Brief" : "Send Yuki Brief"}
+              {yukiSending ? "Sending…" : "Send Yuki Brief"}
             </Button>
-            {isOutdated && (
-              <Badge variant="destructive" className="self-center">
-                Outdated — Yuki has v{lastBrief.version}
-              </Badge>
+            <label className="flex items-center gap-1.5 text-xs text-muted-foreground">
+              <input
+                type="checkbox"
+                checked={includeOrderQty}
+                onChange={(e) => setIncludeOrderQty(e.target.checked)}
+                className="h-3.5 w-3.5 rounded border-input"
+              />
+              Include order quantity
+            </label>
+            {!specApproved && (
+              <span className="self-center text-xs text-muted-foreground">Approve a spec first.</span>
+            )}
+            {yukiSendResult?.success && (
+              <span className="self-center text-xs text-emerald-600" data-testid="yuki-sent-confirm">
+                Sent to Yuki · {yukiSendResult.sentAt ? new Date(yukiSendResult.sentAt).toLocaleTimeString() : ""}
+              </span>
+            )}
+            {yukiSendResult?.error && (
+              <span className="self-center text-xs text-destructive" data-testid="yuki-send-error">
+                Failed: {yukiSendResult.error}
+              </span>
             )}
           </div>
-          {lastBrief && (
-            <div className="text-xs text-muted-foreground" data-testid="yuki-brief-sent">
-              Brief v{lastBrief.version} sent to Yuki, {new Date(lastBrief.sentAt).toLocaleString()}
-            </div>
-          )}
 
           {/* AI draft review box - single box with Approve + Suggest an edit */}
           {draftFields.length > 0 && (
@@ -1009,22 +1045,6 @@ export default function ProductDetail({ params }: { params: Promise<{ id: string
         </SheetContent>
       </Sheet>
 
-      <Dialog open={yukiPreviewOpen} onOpenChange={setYukiPreviewOpen}>
-        <DialogContent className="max-h-[85vh] max-w-2xl overflow-y-auto sm:max-w-2xl">
-          <DialogHeader>
-            <DialogTitle>Preview Yuki brief {lastBrief ? `(v${(lastBrief.version || 0) + 1})` : "(v1)"}</DialogTitle>
-          </DialogHeader>
-          <pre className="whitespace-pre-wrap rounded-md border bg-muted/40 p-3 font-mono text-xs">
-            {buildYukiBriefContent()}
-          </pre>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setYukiPreviewOpen(false)}>
-              Cancel
-            </Button>
-            <Button onClick={sendYukiBrief}>Confirm &amp; send to Yuki</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
     </div>
   );
 }
