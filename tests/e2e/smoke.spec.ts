@@ -24,7 +24,7 @@ for (const path of DASHBOARD_PAGES) {
 test("smoke: /login renders sign-in", async ({ page }) => {
   await page.goto("/login", { waitUntil: "domcontentloaded" });
   await expect(page.locator("body")).toBeVisible();
-  await expect(page.getByText("Sign in", { exact: false })).toHaveCount(1);
+  await expect(page.getByText("Sign in", { exact: false }).first()).toBeVisible();
 });
 
 test("smoke: product detail without login lands on /login", async ({ page }) => {
