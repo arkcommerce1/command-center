@@ -2,6 +2,7 @@ import {
   Activity,
   CheckSquare,
   Factory,
+  LayoutDashboard,
   type LucideIcon,
   MessageSquare,
   Package,
@@ -53,6 +54,12 @@ export const sidebarItems: NavGroup[] = [
     id: 0,
     label: "Command Center",
     items: [
+      {
+        id: "dashboard",
+        title: "Dashboard",
+        url: "/dashboard/default",
+        icon: LayoutDashboard,
+      },
       {
         id: "tonight",
         title: "Actionables",
