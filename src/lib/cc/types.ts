@@ -80,6 +80,8 @@ export interface Product {
   yukiBriefs: YukiBrief[];
   approach: ProductApproach;
   amazonSnapshot: AmazonSnapshot | null;
+  productStatus: "queue" | "active" | "completed";
+  estimatedMonthlySales: number;
 }
 
 export const STAGES: Stage[] = ["spec", "sourcing", "outreach", "sampling", "quotation"];
@@ -156,8 +158,11 @@ export function normP(p: Product): Product {
       description: String(snap.description || ""),
       imageUrls: Array.isArray(snap.imageUrls) ? snap.imageUrls.map((u: any) => String(u)) : [],
       fetchedAt: typeof snap.fetchedAt === "number" ? snap.fetchedAt : Date.now(),
-    }
-    : null;
+    } : null;
+  (p as any).productStatus = ["queue", "active", "completed"].includes((p as any).productStatus)
+    ? (p as any).productStatus : "queue";
+  (p as any).estimatedMonthlySales = typeof (p as any).estimatedMonthlySales === "number"
+    ? (p as any).estimatedMonthlySales : 0;
   return p;
 }
 

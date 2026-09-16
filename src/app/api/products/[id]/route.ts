@@ -26,6 +26,10 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   if (body.masterSku !== undefined) (p as any).masterSku = String(body.masterSku).slice(0, 60);
   if (body.specDone !== undefined) (p as any).specDone = !!body.specDone;
   if (body.sourcingStarted !== undefined) (p as any).sourcingStarted = !!body.sourcingStarted;
+  if (body.productStatus !== undefined && ["queue", "active", "completed"].includes(body.productStatus))
+    (p as any).productStatus = body.productStatus;
+  if (body.estimatedMonthlySales !== undefined)
+    (p as any).estimatedMonthlySales = Math.max(0, Math.round(Number(body.estimatedMonthlySales)) || 0);
   if (Array.isArray(body.skus))
     (p as any).skus = body.skus.slice(0, 200).map((r: any) => ({
       id: String(r.id || Math.random().toString(36).slice(2, 9)),

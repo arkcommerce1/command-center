@@ -254,6 +254,26 @@ export default function ProductDetail({ params }: { params: Promise<{ id: string
               title="Scheduled start — activates that morning"
               className="rounded-md border border-input bg-background px-2 py-1 text-xs"
             />
+            <select
+              value={(p as any).productStatus || "queue"}
+              onChange={(e) => patch({ productStatus: e.target.value })}
+              className="rounded-md border border-input bg-background px-2 py-1 text-xs"
+            >
+              <option value="queue">Queue</option>
+              <option value="active">Active</option>
+              <option value="completed">Completed</option>
+            </select>
+          </div>
+          <div className="mt-1 flex items-center gap-2 text-sm text-muted-foreground">
+            <span>Est. monthly sales:</span>
+            <input
+              type="number"
+              value={(p as any).estimatedMonthlySales || 0}
+              onChange={(e) => setP({ ...p, estimatedMonthlySales: Number(e.target.value) } as any)}
+              onBlur={(e) => patch({ estimatedMonthlySales: Number(e.target.value) })}
+              className="w-24 rounded-md border border-input bg-background px-2 py-1 text-xs"
+            />
+            <span>units</span>
           </div>
         </div>
       </div>
