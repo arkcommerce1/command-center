@@ -1,16 +1,17 @@
 import { NextRequest } from "next/server";
+
 import { beforeAll, describe, expect, it } from "vitest";
 
-import { dbFind } from "@/lib/cc/agent-store";
 import { POST } from "@/app/api/agent/drafts/route";
+import { dbFind } from "@/lib/cc/agent-store";
 
 process.env.CC_AGENT_TOKEN = process.env.CC_AGENT_TOKEN || "test-token";
 const AUTH = { authorization: "Bearer test-token", "content-type": "application/json" };
 
-function req(body: any) {
+function req(body: unknown) {
   return new NextRequest("http://test/api/agent/drafts", {
     method: "POST",
-    headers: AUTH as any,
+    headers: AUTH as unknown as HeadersInit,
     body: JSON.stringify(body),
   });
 }

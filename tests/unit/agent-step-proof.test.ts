@@ -25,15 +25,17 @@ describe("validateStepProof (SPEC §3.3 + §1.3)", () => {
   });
 
   it("rejects outbound messages as proof", () => {
-    expect(
-      validateStepProof({ direction: "out", senderType: "factory", text: "Yes, we confirm the spec." }),
-    ).toEqual({ ok: false, reason: expect.stringContaining("inbound") });
+    expect(validateStepProof({ direction: "out", senderType: "factory", text: "Yes, we confirm the spec." })).toEqual({
+      ok: false,
+      reason: expect.stringContaining("inbound"),
+    });
   });
 
   it("rejects proofs from non-factory contacts", () => {
-    expect(
-      validateStepProof({ direction: "in", senderType: "ours", text: "Yes, we confirm the spec." }),
-    ).toEqual({ ok: false, reason: expect.stringContaining("factory contact") });
+    expect(validateStepProof({ direction: "in", senderType: "ours", text: "Yes, we confirm the spec." })).toEqual({
+      ok: false,
+      reason: expect.stringContaining("factory contact"),
+    });
   });
 
   it.each([

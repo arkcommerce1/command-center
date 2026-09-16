@@ -1,14 +1,18 @@
 import { NextRequest } from "next/server";
+
 import { describe, expect, it } from "vitest";
 
-import { __resetAgentDb, dbGet, dbInsert, dbPut } from "@/lib/cc/agent-store";
 import { POST as claim } from "@/app/api/agent/outbox/claim/route";
+import { __resetAgentDb, dbGet, dbInsert, dbPut } from "@/lib/cc/agent-store";
 
 process.env.CC_AGENT_TOKEN = process.env.CC_AGENT_TOKEN || "test-token";
 const AUTH = { authorization: "Bearer test-token", "content-type": "application/json" };
 
 function claimReq() {
-  return new NextRequest("http://test/api/agent/outbox/claim", { method: "POST", headers: AUTH as any });
+  return new NextRequest("http://test/api/agent/outbox/claim", {
+    method: "POST",
+    headers: AUTH as unknown as HeadersInit,
+  });
 }
 
 describe("outbox claim lease (SPEC §1.3: one winner)", () => {
@@ -26,10 +30,7 @@ describe("outbox claim lease (SPEC §1.3: one winner)", () => {
     // Loser got null.
     expect([b1.outbox, b2.outbox]).toContain(null);
     // Cleanup.
-    await dbPut(
-      "outbox",
-      (await dbGet("outbox")).filter((x: any) => x.tag !== tag) as any,
-    );
+    await dbPut("outbox", (await dbGet("outbox")).filter((x: unknown) => (x as { tag?: string }).tag !== tag) as never);
     __resetAgentDb();
   });
 });

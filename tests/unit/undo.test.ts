@@ -12,7 +12,7 @@ import {
   saveFactoryProduct,
   undoActivityEntry,
 } from "@/lib/cc/store";
-import { blankSteps, uid, type Contact, type FactoryProduct } from "@/lib/cc/types";
+import { blankSteps, type Contact, type FactoryProduct, uid } from "@/lib/cc/types";
 
 function testContact(): Contact {
   return {
