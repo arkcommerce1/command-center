@@ -14,7 +14,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   const f: Factory = {
     id: uid(), productId: id, name: String(body.name || "New factory"),
     contact: String(body.contact || ""), channel: String(body.channel || "WeChat"),
-    active: true, fstage: "intro", sampleStatus: "none", quoteStatus: "none",
+    active: true, fstage: "intro", factoryStage: "spec_agreed", sampleStatus: "none", quoteStatus: "none",
     people: [],
     lastContactAt: null, sampleRequestedAt: null, sampleShippedAt: null,
     reminders: [], comments: [], files: [], quotes: [], updatedAt: Date.now(),

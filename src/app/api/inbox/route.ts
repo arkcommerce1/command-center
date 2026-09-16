@@ -30,7 +30,7 @@ export async function POST(req: NextRequest) {
     const fac: Factory = {
       id: uid(), productId: p.id, name: String(b.newFactory.name).slice(0, 120),
       contact: String(b.newFactory.contact || ""), channel: "WeChat",
-      active: true, fstage: "intro", sampleStatus: "none", quoteStatus: "none",
+      active: true, fstage: "intro", factoryStage: "spec_agreed", sampleStatus: "none", quoteStatus: "none",
       people: [],
       lastContactAt: Date.now(), sampleRequestedAt: null, sampleShippedAt: null,
       reminders: [], comments: b.newFactory.note

@@ -17,7 +17,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ fi
   if (!f) return NextResponse.json({ error: "not found" }, { status: 404 });
   const b = await req.json();
   const prevSample = f.sampleStatus, prevQuote = f.quoteStatus, prevF = (f as any).fstage;
-  for (const k of ["name", "contact", "channel", "sampleStatus", "quoteStatus", "fstage"] as const)
+  for (const k of ["name", "contact", "channel", "sampleStatus", "quoteStatus", "fstage", "factoryStage"] as const)
     if (b[k] !== undefined) (f as any)[k] = b[k];
   if (b.active !== undefined) f.active = !!b.active;
   if (b.canShareVolumes !== undefined) (f as any).canShareVolumes = !!b.canShareVolumes;

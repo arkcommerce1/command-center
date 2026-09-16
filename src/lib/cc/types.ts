@@ -9,10 +9,13 @@ export interface Comment { ts: number; text: string }
 export interface FactoryFile { name: string; url: string; ts: number }
 export interface Quote { unitPrice: number; qty: number; notes: string; ts: number }
 
+export type FactoryStage = "spec_agreed" | "sample_committed" | "passed_china" | "arrived_ny" | "sample_approved";
+
 export interface Factory {
   id: string; productId: string; name: string; contact: string;
   channel: string; active: boolean;
   fstage: FStage;
+  factoryStage: FactoryStage; // 5-step factory-level ladder (steps 4-8)
   canShareVolumes?: boolean; // SPEC §1.2: volumes named only when true (P4)
   people: Person[];
   sampleStatus: SampleStatus; quoteStatus: QuoteStatus;
@@ -100,6 +103,15 @@ export const FSTAGE_LABEL: Record<string, string> = {
   negotiating: "Negotiating", ordered: "Ordered",
 };
 
+export const FACTORY_STAGES: FactoryStage[] = ["spec_agreed", "sample_committed", "passed_china", "arrived_ny", "sample_approved"];
+export const FACTORY_STAGE_LABELS: Record<FactoryStage, string> = {
+  spec_agreed: "Spec agreed",
+  sample_committed: "Sample committed",
+  passed_china: "Passed China check",
+  arrived_ny: "Arrived in New York",
+  sample_approved: "Sample approved",
+};
+
 export function normF(f: Factory): Factory {
   if (!f.fstage) {
     if ((f.quotes && f.quotes.length > 0) || f.quoteStatus === "received") f.fstage = "quoted";
@@ -109,6 +121,14 @@ export function normF(f: Factory): Factory {
     else if (f.sampleStatus === "requested") f.fstage = "sample_requested";
     else if (f.lastContactAt) f.fstage = "contacted";
     else f.fstage = "intro";
+  }
+  // Infer factoryStage from existing fstage if not set
+  if (!(f as any).factoryStage) {
+    if (f.fstage === "sample_confirmed" || f.fstage === "quoted" || f.fstage === "negotiating" || f.fstage === "ordered") (f as any).factoryStage = "sample_approved";
+    else if (f.sampleStatus === "received" || f.fstage === "sample_ny") (f as any).factoryStage = "arrived_ny";
+    else if (f.sampleStatus === "shipped" || f.fstage === "sample_yiwu") (f as any).factoryStage = "passed_china";
+    else if (f.sampleStatus === "requested" || f.fstage === "sample_requested") (f as any).factoryStage = "sample_committed";
+    else (f as any).factoryStage = "spec_agreed";
   }
   f.comments = f.comments || []; f.reminders = f.reminders || [];
   f.quotes = f.quotes || []; f.files = f.files || [];
