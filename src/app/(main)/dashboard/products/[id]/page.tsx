@@ -175,6 +175,7 @@ export default function ProductDetail({ params }: { params: Promise<{ id: string
   const [yukiSending, setYukiSending] = React.useState(false);
   const [yukiSendResult, setYukiSendResult] = React.useState<{ success?: boolean; sentAt?: number; messageId?: string; error?: string } | null>(null);
   const [includeOrderQty, setIncludeOrderQty] = React.useState(false);
+  const [yukiMessage, setYukiMessage] = React.useState("");
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState(false);
 
@@ -631,52 +632,23 @@ export default function ProductDetail({ params }: { params: Promise<{ id: string
               variant="outline"
               disabled={!specApproved}
               title={!specApproved ? "Approve a spec first." : undefined}
-              onClick={async () => {
+              onClick={() => {
                 if (!specApproved) return;
-                setYukiSending(true);
+                setYukiMessage(`Hi, let me know if you could work on finding factories for ${p.name}.`);
+                setIncludeOrderQty(false);
                 setYukiSendResult(null);
-                try {
-                  const r = await fetch(`/api/products/${id}/send-yuki-pdf`, {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ includeOrderQty }),
-                  });
-                  const d = await r.json();
-                  if (!r.ok || d.error) {
-                    setYukiSendResult({ error: d.error || "Send failed" });
-                  } else {
-                    setYukiSendResult({ success: true, sentAt: d.sentAt, messageId: d.messageId });
-                  }
-                } catch (e: any) {
-                  setYukiSendResult({ error: e?.message || "Network error" });
-                } finally {
-                  setYukiSending(false);
-                }
+                setYukiPreviewOpen(true);
               }}
               data-testid="send-yuki-btn"
             >
-              {yukiSending ? "Sending…" : "Send Yuki Brief"}
+              Send Yuki Brief
             </Button>
-            <label className="flex items-center gap-1.5 text-xs text-muted-foreground">
-              <input
-                type="checkbox"
-                checked={includeOrderQty}
-                onChange={(e) => setIncludeOrderQty(e.target.checked)}
-                className="h-3.5 w-3.5 rounded border-input"
-              />
-              Include order quantity
-            </label>
             {!specApproved && (
               <span className="self-center text-xs text-muted-foreground">Approve a spec first.</span>
             )}
             {yukiSendResult?.success && (
               <span className="self-center text-xs text-emerald-600" data-testid="yuki-sent-confirm">
                 Sent to Yuki · {yukiSendResult.sentAt ? new Date(yukiSendResult.sentAt).toLocaleTimeString() : ""}
-              </span>
-            )}
-            {yukiSendResult?.error && (
-              <span className="self-center text-xs text-destructive" data-testid="yuki-send-error">
-                Failed: {yukiSendResult.error}
               </span>
             )}
           </div>
@@ -1046,6 +1018,96 @@ export default function ProductDetail({ params }: { params: Promise<{ id: string
           )}
         </SheetContent>
       </Sheet>
+
+      {/* Send Yuki Brief pop-up (Goal 12-13) */}
+      <Dialog open={yukiPreviewOpen} onOpenChange={(o) => { setYukiPreviewOpen(o); if (!o && !yukiSending) setYukiSendResult(null); }}>
+        <DialogContent className="max-h-[85vh] max-w-3xl overflow-y-auto sm:max-w-3xl">
+          <DialogHeader>
+            <DialogTitle>Send Yuki Brief — {p?.name}</DialogTitle>
+          </DialogHeader>
+          <div className="flex flex-col gap-4">
+            {/* Message box (editable) */}
+            <div>
+              <Label className="mb-1 block">Message to Yuki</Label>
+              <Textarea
+                value={yukiMessage}
+                onChange={(e) => setYukiMessage(e.target.value)}
+                rows={3}
+                placeholder="Type your message to Yuki…"
+              />
+            </div>
+
+            {/* PDF preview */}
+            <div>
+              <Label className="mb-1 block">Spec PDF preview</Label>
+              {specApproved ? (
+                <iframe
+                  src={`/api/products/${id}/spec-pdf?qty=${includeOrderQty ? 1 : 0}`}
+                  className="h-96 w-full rounded-lg border"
+                  title="Spec PDF preview"
+                />
+              ) : (
+                <div className="flex h-48 items-center justify-center rounded-lg border text-sm text-muted-foreground">
+                  Approve a spec first.
+                </div>
+              )}
+            </div>
+
+            {/* Include order quantity checkbox (Goal 13) */}
+            <label className="flex items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                checked={includeOrderQty}
+                onChange={(e) => setIncludeOrderQty(e.target.checked)}
+                className="h-4 w-4 rounded border-input"
+              />
+              Include order quantity in PDF
+            </label>
+
+            {/* Error message */}
+            {yukiSendResult?.error && (
+              <div className="rounded-lg border border-destructive/50 bg-destructive/10 p-3 text-sm text-destructive" data-testid="yuki-send-error">
+                Send failed: {yukiSendResult.error}. Your message is still here — try again.
+              </div>
+            )}
+
+            {/* Send + Cancel */}
+            <div className="flex justify-end gap-2">
+              <Button variant="outline" onClick={() => { setYukiPreviewOpen(false); setYukiSendResult(null); }} disabled={yukiSending}>
+                Cancel
+              </Button>
+              <Button
+                onClick={async () => {
+                  setYukiSending(true);
+                  setYukiSendResult(null);
+                  try {
+                    const r = await fetch(`/api/products/${id}/send-yuki-pdf`, {
+                      method: "POST",
+                      headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify({ includeOrderQty, message: yukiMessage }),
+                    });
+                    const d = await r.json();
+                    if (!r.ok || d.error) {
+                      setYukiSendResult({ error: d.error || "Send failed" });
+                    } else {
+                      setYukiSendResult({ success: true, sentAt: d.sentAt, messageId: d.messageId });
+                      setYukiPreviewOpen(false);
+                    }
+                  } catch (e: any) {
+                    setYukiSendResult({ error: e?.message || "Network error" });
+                  } finally {
+                    setYukiSending(false);
+                  }
+                }}
+                disabled={yukiSending || !yukiMessage.trim()}
+                data-testid="yuki-send-confirm"
+              >
+                {yukiSending ? "Sending…" : "Send"}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
 
     </div>
   );
