@@ -77,6 +77,8 @@ export interface Product {
   specUpdatedAt: number | null;
   yukiChecklist: YukiChecklist; boxCutoffDate: string;
   yukiBriefs: YukiBrief[];
+  approach: ProductApproach;
+  amazonSnapshot: AmazonSnapshot | null;
 }
 
 export const STAGES: Stage[] = ["spec", "sourcing", "outreach", "sampling", "quotation"];
@@ -144,6 +146,17 @@ export function normP(p: Product): Product {
   p.yukiChecklist = { ...blankYukiChecklist(), ...((p as any).yukiChecklist || {}) };
   p.boxCutoffDate = (p as any).boxCutoffDate || "";
   p.yukiBriefs = Array.isArray((p as any).yukiBriefs) ? (p as any).yukiBriefs : [];
+  (p as any).approach = (p as any).approach === "fresh" ? "fresh" : "already_selling";
+  const snap = (p as any).amazonSnapshot;
+  (p as any).amazonSnapshot = snap && typeof snap === "object"
+    ? {
+      title: String(snap.title || ""),
+      bullets: Array.isArray(snap.bullets) ? snap.bullets.map((b: any) => String(b)) : [],
+      description: String(snap.description || ""),
+      imageUrls: Array.isArray(snap.imageUrls) ? snap.imageUrls.map((u: any) => String(u)) : [],
+      fetchedAt: typeof snap.fetchedAt === "number" ? snap.fetchedAt : Date.now(),
+    }
+    : null;
   return p;
 }
 
@@ -186,10 +199,14 @@ export interface PlaybookSettings {
   boxScheduleDay: string;
   boxScheduleCutoffTime: string;
   yiwuAddress: string;
+  ourBrands: string[];
   approachADisclosures: string;
   ourPeople: PlaybookPerson[];
   holidays: PlaybookHoliday[];
 }
+
+export const YIWU_ADDRESS_SEED = "浙江义乌稠城街道丹溪北路18号雪峰银座9楼912室 丁小姐 15067460724";
+export const OUR_BRANDS_SEED = ["AllSett Health", "Refreshify", "Everlasting"];
 
 export function defaultPlaybookSettings(): PlaybookSettings {
   return {
@@ -198,7 +215,8 @@ export function defaultPlaybookSettings(): PlaybookSettings {
     sampleFeeRule: "always_ask",
     boxScheduleDay: "",
     boxScheduleCutoffTime: "",
-    yiwuAddress: "",
+    yiwuAddress: YIWU_ADDRESS_SEED,
+    ourBrands: [...OUR_BRANDS_SEED],
     approachADisclosures: "We sell on Amazon and Retail.",
     ourPeople: [
       { name: "Yuki", role: "Factory relations / sourcing", location: "China" },
@@ -219,7 +237,10 @@ export function normSettings(s: any): PlaybookSettings {
     sampleFeeRule: typeof s.sampleFeeRule === "string" ? s.sampleFeeRule : d.sampleFeeRule,
     boxScheduleDay: typeof s.boxScheduleDay === "string" ? s.boxScheduleDay : d.boxScheduleDay,
     boxScheduleCutoffTime: typeof s.boxScheduleCutoffTime === "string" ? s.boxScheduleCutoffTime : d.boxScheduleCutoffTime,
-    yiwuAddress: typeof s.yiwuAddress === "string" ? s.yiwuAddress : d.yiwuAddress,
+    yiwuAddress: typeof s.yiwuAddress === "string" && s.yiwuAddress ? s.yiwuAddress : d.yiwuAddress,
+    ourBrands: Array.isArray(s.ourBrands) && s.ourBrands.length > 0
+      ? s.ourBrands.map((b: any) => String(b)).filter(Boolean)
+      : [...d.ourBrands],
     approachADisclosures: typeof s.approachADisclosures === "string" ? s.approachADisclosures : d.approachADisclosures,
     ourPeople: Array.isArray(s.ourPeople)
       ? s.ourPeople.map((p: any) => ({ name: String(p?.name || ""), role: String(p?.role || ""), location: String(p?.location || "") }))
@@ -320,4 +341,217 @@ export interface FactoryProductLink {
   since: number;
   promisedShipDate: string | null;
   dropped: DroppedInfo | null;
+}
+
+// --- SPEC §1.2 Goal 1 additive tables (new collections; existing ones untouched) ---
+
+export type ProductApproach = "already_selling" | "fresh";
+
+export interface AmazonSnapshot {
+  title: string;
+  bullets: string[];
+  description: string;
+  imageUrls: string[];
+  fetchedAt: number;
+}
+
+export interface SpecFieldV2 { key: string; label: string; value: string; tag: "locked" | "flexible"; status: "filled" | "needs_input" }
+
+export interface SpecVersionRow {
+  id: string;
+  productId: string;
+  version: number;
+  fields: SpecFieldV2[];
+  status: "draft" | "approved";
+  createdBy: "ai" | "haim";
+  createdAt: number;
+}
+
+export type StepKey = "step1" | "step2" | "step3" | "step4" | "step5";
+export type WaitingOnV2 = "haim" | "factory" | "yuki" | "carrier" | "none";
+
+export interface FactoryProduct {
+  id: string;
+  factoryId: string;
+  productId: string;
+  steps: Record<StepKey, { proofMessageId: string | null; doneAt: number | null }>;
+  statusSentence: string;
+  waitingOn: WaitingOnV2;
+  waitingSince: number | null;
+  nextStep: string;
+  productGuessed: boolean;
+  followupsUnanswered: number;
+  archivedAt: number | null;
+  createdAt: number;
+}
+
+export function blankSteps(): FactoryProduct["steps"] {
+  const s = (proofMessageId: string | null = null, doneAt: number | null = null) => ({ proofMessageId, doneAt });
+  return { step1: s(), step2: s(), step3: s(), step4: s(), step5: s() };
+}
+
+export interface Adjustment {
+  id: string;
+  factoryProductId: string;
+  fieldKey: string;
+  proposedValue: string;
+  messageId: string | null;
+  result: "accepted" | "declined" | "pending";
+  createdAt: number;
+}
+
+export interface ContactChannel {
+  id: string;
+  contactId: string;
+  kind: "whatsapp" | "email" | "wechat";
+  value: string;
+  createdAt: number;
+}
+
+export interface Chat {
+  id: string;
+  channel: "whatsapp" | "email";
+  externalId: string;
+  name: string;
+  kind: "group" | "dm" | "email_thread";
+  factoryId: string | null;
+  createdAt: number;
+}
+
+export interface ChatMember { id: string; chatId: string; contactId: string }
+
+export interface Message {
+  id: string;
+  chatId: string;
+  contactId: string | null;
+  direction: "in" | "out";
+  externalId: string;
+  text: string;
+  translation: string | null;
+  lang: string | null;
+  media: unknown;
+  sentAt: number;
+  factoryProductId: string | null;
+  fromOutboxId: string | null;
+}
+
+export type OutboxStatus = "queued" | "sending" | "sent" | "failed" | "uncertain";
+
+export interface OutboxRow {
+  id: string;
+  draftVersionId: string;
+  chatId: string;
+  bubbles: string[];
+  status: OutboxStatus;
+  sendAfter: number | null;
+  leaseToken: string | null;
+  leaseExpiresAt: number | null;
+  attempts: number;
+  externalMessageIds: string[];
+  error: string | null;
+  createdAt: number;
+}
+
+export type QuestionKind = "question" | "fee" | "product_pick" | "sample_flag" | "sample_review" | "send_uncertain" | "guardrail_block";
+
+export interface Question {
+  id: string;
+  factoryProductId: string | null;
+  kind: QuestionKind;
+  body: unknown;
+  status: "open" | "answered";
+  answer: unknown;
+  importance: "high" | "medium" | "low";
+  createdAt: number;
+}
+
+export interface QuoteRow { id: string; factoryProductId: string; messageId: string | null; text: string; createdAt: number }
+
+export interface OpenItem {
+  id: string;
+  factoryProductId: string;
+  direction: "we_owe" | "they_owe";
+  kind: "question" | "sample_tracking";
+  summary: string;
+  openedMessageId: string | null;
+  openedAt: number;
+  followupsSent: number;
+  resolvedAt: number | null;
+}
+
+export type SampleStage = "waiting_tracking" | "to_yiwu" | "in_yiwu" | "problem" | "ready_to_ship" | "to_ny" | "in_ny" | "approved" | "rejected" | "change_requested";
+
+export interface Sample {
+  id: string;
+  factoryProductId: string;
+  stage: SampleStage;
+  qcResult: "pass" | "problem" | null;
+  qcNotes: string;
+  photos: string[];
+  haimResult: "approved" | "rejected" | "change_requested" | null;
+  createdAt: number;
+}
+
+export interface Shipment {
+  id: string;
+  leg: "china_to_yiwu" | "yiwu_to_ny";
+  trackingNumber: string;
+  carrier: string | null;
+  status: string | null;
+  lastEvent: string | null;
+  eta: string | null;
+  events: unknown[];
+  createdAt: number;
+}
+
+export interface ShipmentItem { id: string; shipmentId: string; sampleId: string }
+
+export interface Notification {
+  id: string;
+  contactId: string;
+  chatId: string | null;
+  text: string;
+  attachments: unknown[];
+  status: string;
+  sentAt: number | null;
+  createdAt: number;
+}
+
+export type ActivityActor = "agent" | "haim";
+
+export interface ActivityLogEntry {
+  id: string;
+  actor: ActivityActor;
+  action: string;
+  entity: string;
+  entityId: string;
+  before: any;
+  after: any;
+  undoable: boolean;
+  undoneAt: number | null;
+  createdAt: number;
+}
+
+export type AgentJobStatus = "queued" | "running" | "done" | "failed";
+
+export interface AgentJob {
+  id: string;
+  type: string;
+  payload: unknown;
+  status: AgentJobStatus;
+  leaseToken: string | null;
+  leaseExpiresAt: number | null;
+  attempts: number;
+  error: string | null;
+  createdAt: number;
+}
+
+// Pure undo planner (unit-testable, no I/O): given an activity_log entry,
+// describe how to restore the before-state. Returns null when not undoable.
+export interface UndoPlan { collection: string; id: string; restore: any; remove: boolean }
+
+export function planUndo(entry: ActivityLogEntry): UndoPlan | null {
+  if (!entry.undoable || entry.undoneAt) return null;
+  if (entry.before == null) return { collection: entry.entity, id: entry.entityId, restore: null, remove: true };
+  return { collection: entry.entity, id: entry.entityId, restore: entry.before, remove: false };
 }

@@ -147,6 +147,61 @@ Buttons/controls (from reading `src/app/(main)/dashboard/products/[id]/page.tsx`
   (`NOUS_API_KEY`, `z-ai/glm-5.3-flash`) — code comments cite "per Haim's
   instruction". Goal 1+ must not build on-screen AI until Haim picks a
   provider. No other decisions taken (Goal 0 changes nothing).
+- **Goal 1 logic modules are pure/in-memory, DB wiring later.** `approval.ts`
+  takes an `ApprovalStore` (Maps) instead of touching Postgres, so the Agent
+  API routes and dashboard actions will map real tables onto it; unit tests
+  exercise every transition without a database. Same for `china-time.ts` /
+  `holidays.ts` (pure functions + checked-in table).
+- **Due-date model: wall-clock add, then push whole days past non-business
+  days (time-of-day preserved).** SPEC's anchor (Friday 5pm + 24h = Monday
+  5pm) rules out counting hours inside the 9:30–18:00 window (that would land
+  Wednesday). "3 business days" is therefore read as 72 business-day hours
+  under the same rule. `nextBusinessSlot` (9:30–18:00 window) is only for
+  `send_after`, not for due dates.
+- **Guardrail strips allowed content before matching** (fee message, CJK
+  address runs, phones, dates, tracking numbers, spec numbers) instead of
+  allow-listing after a match — so the exact fee card message (which names a
+  price + wire transfer) passes. All patterns case-insensitive per §3.4.
+- **2027 festival dates provisional.** 2026 table follows the State Council
+  circular; 2027 lunar-mapped festivals (Spring Festival, Dragon Boat,
+  Mid-Autumn) must be confirmed when the 2027 circular publishes. Golden Week
+  Oct 1–7 fixed both years.
+- **Goal 1 Agent API (Sep 16, 2026): isolated store, inline minimal logic.**
+  All `/api/agent/*` routes persist to a NEW module `src/lib/cc/agent-store.ts`
+  (file `data/agent.json` locally, `agent_kv` row in Postgres) and never touch
+  `src/lib/cc/store.ts`, so the sibling task's §1.2 tables/store work there
+  merges cleanly. No approval-engine/business-time imports: the sibling's
+  `approval.ts`/`china-time.ts`/`holidays.ts` appeared mid-task as uncommitted
+  in-progress work, so routes carry minimal inline equivalents (5-min lease in
+  `claimOne`, CST clock stub in tick, sha256 content_hash in drafts);
+  follow-up: rewire drafts/outbox/tick to `approval.ts`/`china-time.ts` once
+  the sibling commits. Tick imports no AI SDK by design (never calls an LLM).
+  Step-proof ack list implements §3.3 verbatim incl. 好的/收到/稍等 + emoji-only
+  rejection. Blocked drafts return 422 + a `guardrail_block` question via the
+  existing `checkGuardrail` (sibling is extending its reason strings; route
+  only depends on `blocked`). `GET context` reads product/link/settings from
+  the existing store and agent collections from the agent store; style examples
+  and older-message summary are placeholders. Spec PDF serves
+  `data|public/spec-<id>.pdf` or 501. Nothing committed/pushed/deployed.
+- **Goal 1 data remainder (Sep 16, 2026): §1.2 collections in the main store,
+  Undo in store + one route.** All 17 new §1.2 collections
+  (`spec_versions`, `factory_products`, `adjustments`, `contact_channels`,
+  `chats`, `chat_members`, `messages`, `outbox`, `questions`, `quotes`,
+  `open_items`, `samples`, `shipments`, `shipment_items`, `notifications`,
+  `activity_log`, `agent_jobs`) live in `src/lib/cc/store.ts` only — same
+  dual-backend pattern as the existing code (`id TEXT PRIMARY KEY, data JSONB`
+  tables, parent-id column where lists are parent-scoped, local-JSON keys in
+  `LocalData` + `EMPTY_LOCAL`/`LOCAL_LIST_KEYS`). The sibling's
+  `src/lib/cc/agent-store.ts` (`data/agent.json`) is untouched and stays the
+  Agent API's store; the two overlap in meaning but not in rows. Undo reuses
+  the pure `planUndo` already in `types.ts`: `undoActivityEntry(id)` in the
+  store applies the plan (restore before-state, or delete when before is null)
+  across all 17 collections + `contacts`, then stamps `undoneAt`; double-undo
+  is refused (`planUndo` returns null once `undoneAt` is set).
+  `POST /api/activity/undo` (`{id}` → 404/400/200) is a thin wrapper over it.
+  Local JSON keys use the existing camelCase convention (`specVersions`,
+  `factoryProducts`, …); pg table names match SPEC §1.2 verbatim.
+  Nothing committed/pushed/deployed.
 
 ## Sources checked
 

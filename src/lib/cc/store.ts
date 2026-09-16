@@ -3,16 +3,37 @@
 import { promises as fs } from "fs";
 import path from "path";
 import {
+  ActivityActor,
+  ActivityLogEntry,
+  Adjustment,
+  AgentJob,
+  Chat,
+  ChatMember,
   Contact,
+  ContactChannel,
   Decision,
   Draft,
   DraftVersion,
   Factory,
+  FactoryProduct,
   FactoryProductLink,
   LayerProof,
+  Message,
+  Notification,
   normSettings,
+  OpenItem,
+  OutboxRow,
   PlaybookSettings,
   Product,
+  Question,
+  QuoteRow,
+  Sample,
+  Shipment,
+  ShipmentItem,
+  SpecVersionRow,
+  uid,
+  UndoPlan,
+  planUndo,
 } from "@/lib/cc/types";
 
 const DATA_FILE = path.join(process.cwd(), "data", "store.json");
@@ -28,20 +49,86 @@ interface LocalData {
   decisions: Decision[];
   factoryProductLinks: FactoryProductLink[];
   settings?: PlaybookSettings;
+  specVersions: SpecVersionRow[];
+  factoryProducts: FactoryProduct[];
+  adjustments: Adjustment[];
+  contactChannels: ContactChannel[];
+  chats: Chat[];
+  chatMembers: ChatMember[];
+  messages: Message[];
+  outbox: OutboxRow[];
+  questions: Question[];
+  quotes: QuoteRow[];
+  openItems: OpenItem[];
+  samples: Sample[];
+  shipments: Shipment[];
+  shipmentItems: ShipmentItem[];
+  notifications: Notification[];
+  activityLog: ActivityLogEntry[];
+  agentJobs: AgentJob[];
 }
+
+const LOCAL_LIST_KEYS = [
+  "contacts",
+  "drafts",
+  "draftVersions",
+  "layerProofs",
+  "decisions",
+  "factoryProductLinks",
+  "specVersions",
+  "factoryProducts",
+  "adjustments",
+  "contactChannels",
+  "chats",
+  "chatMembers",
+  "messages",
+  "outbox",
+  "questions",
+  "quotes",
+  "openItems",
+  "samples",
+  "shipments",
+  "shipmentItems",
+  "notifications",
+  "activityLog",
+  "agentJobs",
+] as const;
+
+const EMPTY_LOCAL: LocalData = {
+  products: [],
+  factories: [],
+  contacts: [],
+  drafts: [],
+  draftVersions: [],
+  layerProofs: [],
+  decisions: [],
+  factoryProductLinks: [],
+  specVersions: [],
+  factoryProducts: [],
+  adjustments: [],
+  contactChannels: [],
+  chats: [],
+  chatMembers: [],
+  messages: [],
+  outbox: [],
+  questions: [],
+  quotes: [],
+  openItems: [],
+  samples: [],
+  shipments: [],
+  shipmentItems: [],
+  notifications: [],
+  activityLog: [],
+  agentJobs: [],
+};
 
 async function readLocal(): Promise<LocalData> {
   try {
     const d = JSON.parse(await fs.readFile(DATA_FILE, "utf8"));
-    d.contacts = d.contacts || [];
-    d.drafts = d.drafts || [];
-    d.draftVersions = d.draftVersions || [];
-    d.layerProofs = d.layerProofs || [];
-    d.decisions = d.decisions || [];
-    d.factoryProductLinks = d.factoryProductLinks || [];
+    for (const k of LOCAL_LIST_KEYS) d[k] = d[k] || [];
     return d;
   } catch {
-    return { products: [], factories: [], contacts: [], drafts: [], draftVersions: [], layerProofs: [], decisions: [], factoryProductLinks: [] };
+    return structuredClone(EMPTY_LOCAL);
   }
 }
 
@@ -68,6 +155,23 @@ export async function pgInit() {
   await sql`CREATE TABLE IF NOT EXISTS decisions (id TEXT PRIMARY KEY, factory_product_id TEXT NOT NULL, data JSONB NOT NULL)`;
   await sql`CREATE TABLE IF NOT EXISTS factory_product_links (id TEXT PRIMARY KEY, data JSONB NOT NULL)`;
   await sql`CREATE TABLE IF NOT EXISTS settings (id TEXT PRIMARY KEY, data JSONB NOT NULL)`;
+  await sql`CREATE TABLE IF NOT EXISTS spec_versions (id TEXT PRIMARY KEY, product_id TEXT NOT NULL, data JSONB NOT NULL)`;
+  await sql`CREATE TABLE IF NOT EXISTS factory_products (id TEXT PRIMARY KEY, data JSONB NOT NULL)`;
+  await sql`CREATE TABLE IF NOT EXISTS adjustments (id TEXT PRIMARY KEY, factory_product_id TEXT NOT NULL, data JSONB NOT NULL)`;
+  await sql`CREATE TABLE IF NOT EXISTS contact_channels (id TEXT PRIMARY KEY, contact_id TEXT NOT NULL, data JSONB NOT NULL)`;
+  await sql`CREATE TABLE IF NOT EXISTS chats (id TEXT PRIMARY KEY, data JSONB NOT NULL)`;
+  await sql`CREATE TABLE IF NOT EXISTS chat_members (id TEXT PRIMARY KEY, chat_id TEXT NOT NULL, data JSONB NOT NULL)`;
+  await sql`CREATE TABLE IF NOT EXISTS messages (id TEXT PRIMARY KEY, chat_id TEXT NOT NULL, data JSONB NOT NULL)`;
+  await sql`CREATE TABLE IF NOT EXISTS outbox (id TEXT PRIMARY KEY, data JSONB NOT NULL)`;
+  await sql`CREATE TABLE IF NOT EXISTS questions (id TEXT PRIMARY KEY, data JSONB NOT NULL)`;
+  await sql`CREATE TABLE IF NOT EXISTS quotes (id TEXT PRIMARY KEY, factory_product_id TEXT NOT NULL, data JSONB NOT NULL)`;
+  await sql`CREATE TABLE IF NOT EXISTS open_items (id TEXT PRIMARY KEY, factory_product_id TEXT NOT NULL, data JSONB NOT NULL)`;
+  await sql`CREATE TABLE IF NOT EXISTS samples (id TEXT PRIMARY KEY, factory_product_id TEXT NOT NULL, data JSONB NOT NULL)`;
+  await sql`CREATE TABLE IF NOT EXISTS shipments (id TEXT PRIMARY KEY, data JSONB NOT NULL)`;
+  await sql`CREATE TABLE IF NOT EXISTS shipment_items (id TEXT PRIMARY KEY, shipment_id TEXT NOT NULL, data JSONB NOT NULL)`;
+  await sql`CREATE TABLE IF NOT EXISTS notifications (id TEXT PRIMARY KEY, data JSONB NOT NULL)`;
+  await sql`CREATE TABLE IF NOT EXISTS activity_log (id TEXT PRIMARY KEY, data JSONB NOT NULL)`;
+  await sql`CREATE TABLE IF NOT EXISTS agent_jobs (id TEXT PRIMARY KEY, data JSONB NOT NULL)`;
 }
 
 // --- Playbook settings (single-row config) ---
@@ -360,4 +464,746 @@ export async function saveFactoryProductLink(x: FactoryProductLink) {
   const sql = await pg();
   await sql`INSERT INTO factory_product_links (id, data) VALUES (${x.id}, ${JSON.stringify(x)}::jsonb)
     ON CONFLICT (id) DO UPDATE SET data=EXCLUDED.data`;
+}
+
+// --- SPEC §1.2 Goal 1 collections (same dual-backend pattern as above) ---
+
+// Generic row delete used by the per-collection deletes below.
+async function deleteRow(table: string, localKey: (typeof LOCAL_LIST_KEYS)[number], id: string) {
+  if (!usePg) {
+    const d = await readLocal();
+    (d[localKey] as { id: string }[]) = ((d[localKey] as { id: string }[]) || []).filter((x) => x.id !== id);
+    return writeLocal(d);
+  }
+  const sql = await pg();
+  await sql.query(`DELETE FROM ${table} WHERE id = $1`, [id]);
+}
+
+// --- Spec versions ---
+
+export async function listSpecVersions(productId?: string): Promise<SpecVersionRow[]> {
+  if (!usePg) {
+    const all = (await readLocal()).specVersions || [];
+    return productId ? all.filter((x) => x.productId === productId) : all;
+  }
+  const sql = await pg();
+  const r = productId
+    ? await sql`SELECT data FROM spec_versions WHERE product_id=${productId} ORDER BY data->>'createdAt' DESC`
+    : await sql`SELECT data FROM spec_versions ORDER BY data->>'createdAt' DESC`;
+  return r.rows.map((x: any) => x.data as SpecVersionRow);
+}
+
+export async function getSpecVersion(id: string): Promise<SpecVersionRow | null> {
+  if (!usePg) return ((await readLocal()).specVersions || []).find((x) => x.id === id) ?? null;
+  const sql = await pg();
+  const r = await sql`SELECT data FROM spec_versions WHERE id=${id}`;
+  return (r.rows[0]?.data as SpecVersionRow) ?? null;
+}
+
+export async function saveSpecVersion(x: SpecVersionRow) {
+  if (!usePg) {
+    const d = await readLocal();
+    d.specVersions = d.specVersions || [];
+    const i = d.specVersions.findIndex((y) => y.id === x.id);
+    if (i >= 0) d.specVersions[i] = x; else d.specVersions.push(x);
+    return writeLocal(d);
+  }
+  const sql = await pg();
+  await sql`INSERT INTO spec_versions (id, product_id, data) VALUES (${x.id}, ${x.productId}, ${JSON.stringify(x)}::jsonb)
+    ON CONFLICT (id) DO UPDATE SET product_id=EXCLUDED.product_id, data=EXCLUDED.data`;
+}
+
+export async function deleteSpecVersion(id: string) {
+  return deleteRow("spec_versions", "specVersions", id);
+}
+
+// --- Factory products (factory+product pair rows, P11) ---
+
+export async function listFactoryProducts(): Promise<FactoryProduct[]> {
+  if (!usePg) return (await readLocal()).factoryProducts || [];
+  const sql = await pg();
+  const r = await sql`SELECT data FROM factory_products ORDER BY data->>'createdAt' DESC`;
+  return r.rows.map((x: any) => x.data as FactoryProduct);
+}
+
+export async function getFactoryProduct(id: string): Promise<FactoryProduct | null> {
+  if (!usePg) return ((await readLocal()).factoryProducts || []).find((x) => x.id === id) ?? null;
+  const sql = await pg();
+  const r = await sql`SELECT data FROM factory_products WHERE id=${id}`;
+  return (r.rows[0]?.data as FactoryProduct) ?? null;
+}
+
+export async function saveFactoryProduct(x: FactoryProduct) {
+  if (!usePg) {
+    const d = await readLocal();
+    d.factoryProducts = d.factoryProducts || [];
+    const i = d.factoryProducts.findIndex((y) => y.id === x.id);
+    if (i >= 0) d.factoryProducts[i] = x; else d.factoryProducts.push(x);
+    return writeLocal(d);
+  }
+  const sql = await pg();
+  await sql`INSERT INTO factory_products (id, data) VALUES (${x.id}, ${JSON.stringify(x)}::jsonb)
+    ON CONFLICT (id) DO UPDATE SET data=EXCLUDED.data`;
+}
+
+export async function deleteFactoryProduct(id: string) {
+  return deleteRow("factory_products", "factoryProducts", id);
+}
+
+// --- Adjustments ---
+
+export async function listAdjustments(factoryProductId?: string): Promise<Adjustment[]> {
+  if (!usePg) {
+    const all = (await readLocal()).adjustments || [];
+    return factoryProductId ? all.filter((x) => x.factoryProductId === factoryProductId) : all;
+  }
+  const sql = await pg();
+  const r = factoryProductId
+    ? await sql`SELECT data FROM adjustments WHERE factory_product_id=${factoryProductId} ORDER BY data->>'createdAt' DESC`
+    : await sql`SELECT data FROM adjustments ORDER BY data->>'createdAt' DESC`;
+  return r.rows.map((x: any) => x.data as Adjustment);
+}
+
+export async function getAdjustment(id: string): Promise<Adjustment | null> {
+  if (!usePg) return ((await readLocal()).adjustments || []).find((x) => x.id === id) ?? null;
+  const sql = await pg();
+  const r = await sql`SELECT data FROM adjustments WHERE id=${id}`;
+  return (r.rows[0]?.data as Adjustment) ?? null;
+}
+
+export async function saveAdjustment(x: Adjustment) {
+  if (!usePg) {
+    const d = await readLocal();
+    d.adjustments = d.adjustments || [];
+    const i = d.adjustments.findIndex((y) => y.id === x.id);
+    if (i >= 0) d.adjustments[i] = x; else d.adjustments.push(x);
+    return writeLocal(d);
+  }
+  const sql = await pg();
+  await sql`INSERT INTO adjustments (id, factory_product_id, data) VALUES (${x.id}, ${x.factoryProductId}, ${JSON.stringify(x)}::jsonb)
+    ON CONFLICT (id) DO UPDATE SET factory_product_id=EXCLUDED.factory_product_id, data=EXCLUDED.data`;
+}
+
+export async function deleteAdjustment(id: string) {
+  return deleteRow("adjustments", "adjustments", id);
+}
+
+// --- Contact channels ---
+
+export async function listContactChannels(contactId?: string): Promise<ContactChannel[]> {
+  if (!usePg) {
+    const all = (await readLocal()).contactChannels || [];
+    return contactId ? all.filter((x) => x.contactId === contactId) : all;
+  }
+  const sql = await pg();
+  const r = contactId
+    ? await sql`SELECT data FROM contact_channels WHERE contact_id=${contactId} ORDER BY data->>'createdAt' DESC`
+    : await sql`SELECT data FROM contact_channels ORDER BY data->>'createdAt' DESC`;
+  return r.rows.map((x: any) => x.data as ContactChannel);
+}
+
+export async function getContactChannel(id: string): Promise<ContactChannel | null> {
+  if (!usePg) return ((await readLocal()).contactChannels || []).find((x) => x.id === id) ?? null;
+  const sql = await pg();
+  const r = await sql`SELECT data FROM contact_channels WHERE id=${id}`;
+  return (r.rows[0]?.data as ContactChannel) ?? null;
+}
+
+export async function saveContactChannel(x: ContactChannel) {
+  if (!usePg) {
+    const d = await readLocal();
+    d.contactChannels = d.contactChannels || [];
+    const i = d.contactChannels.findIndex((y) => y.id === x.id);
+    if (i >= 0) d.contactChannels[i] = x; else d.contactChannels.push(x);
+    return writeLocal(d);
+  }
+  const sql = await pg();
+  await sql`INSERT INTO contact_channels (id, contact_id, data) VALUES (${x.id}, ${x.contactId}, ${JSON.stringify(x)}::jsonb)
+    ON CONFLICT (id) DO UPDATE SET contact_id=EXCLUDED.contact_id, data=EXCLUDED.data`;
+}
+
+export async function deleteContactChannel(id: string) {
+  return deleteRow("contact_channels", "contactChannels", id);
+}
+
+// --- Chats ---
+
+export async function listChats(): Promise<Chat[]> {
+  if (!usePg) return (await readLocal()).chats || [];
+  const sql = await pg();
+  const r = await sql`SELECT data FROM chats ORDER BY data->>'createdAt' DESC`;
+  return r.rows.map((x: any) => x.data as Chat);
+}
+
+export async function getChat(id: string): Promise<Chat | null> {
+  if (!usePg) return ((await readLocal()).chats || []).find((x) => x.id === id) ?? null;
+  const sql = await pg();
+  const r = await sql`SELECT data FROM chats WHERE id=${id}`;
+  return (r.rows[0]?.data as Chat) ?? null;
+}
+
+export async function saveChat(x: Chat) {
+  if (!usePg) {
+    const d = await readLocal();
+    d.chats = d.chats || [];
+    const i = d.chats.findIndex((y) => y.id === x.id);
+    if (i >= 0) d.chats[i] = x; else d.chats.push(x);
+    return writeLocal(d);
+  }
+  const sql = await pg();
+  await sql`INSERT INTO chats (id, data) VALUES (${x.id}, ${JSON.stringify(x)}::jsonb)
+    ON CONFLICT (id) DO UPDATE SET data=EXCLUDED.data`;
+}
+
+export async function deleteChat(id: string) {
+  return deleteRow("chats", "chats", id);
+}
+
+// --- Chat members ---
+
+export async function listChatMembers(chatId?: string): Promise<ChatMember[]> {
+  if (!usePg) {
+    const all = (await readLocal()).chatMembers || [];
+    return chatId ? all.filter((x) => x.chatId === chatId) : all;
+  }
+  const sql = await pg();
+  const r = chatId
+    ? await sql`SELECT data FROM chat_members WHERE chat_id=${chatId}`
+    : await sql`SELECT data FROM chat_members`;
+  return r.rows.map((x: any) => x.data as ChatMember);
+}
+
+export async function getChatMember(id: string): Promise<ChatMember | null> {
+  if (!usePg) return ((await readLocal()).chatMembers || []).find((x) => x.id === id) ?? null;
+  const sql = await pg();
+  const r = await sql`SELECT data FROM chat_members WHERE id=${id}`;
+  return (r.rows[0]?.data as ChatMember) ?? null;
+}
+
+export async function saveChatMember(x: ChatMember) {
+  if (!usePg) {
+    const d = await readLocal();
+    d.chatMembers = d.chatMembers || [];
+    const i = d.chatMembers.findIndex((y) => y.id === x.id);
+    if (i >= 0) d.chatMembers[i] = x; else d.chatMembers.push(x);
+    return writeLocal(d);
+  }
+  const sql = await pg();
+  await sql`INSERT INTO chat_members (id, chat_id, data) VALUES (${x.id}, ${x.chatId}, ${JSON.stringify(x)}::jsonb)
+    ON CONFLICT (id) DO UPDATE SET chat_id=EXCLUDED.chat_id, data=EXCLUDED.data`;
+}
+
+export async function deleteChatMember(id: string) {
+  return deleteRow("chat_members", "chatMembers", id);
+}
+
+// --- Messages ---
+
+export async function listMessages(chatId?: string): Promise<Message[]> {
+  if (!usePg) {
+    const all = (await readLocal()).messages || [];
+    return chatId ? all.filter((x) => x.chatId === chatId) : all;
+  }
+  const sql = await pg();
+  const r = chatId
+    ? await sql`SELECT data FROM messages WHERE chat_id=${chatId} ORDER BY data->>'sentAt' ASC`
+    : await sql`SELECT data FROM messages ORDER BY data->>'sentAt' ASC`;
+  return r.rows.map((x: any) => x.data as Message);
+}
+
+export async function getMessage(id: string): Promise<Message | null> {
+  if (!usePg) return ((await readLocal()).messages || []).find((x) => x.id === id) ?? null;
+  const sql = await pg();
+  const r = await sql`SELECT data FROM messages WHERE id=${id}`;
+  return (r.rows[0]?.data as Message) ?? null;
+}
+
+export async function saveMessage(x: Message) {
+  if (!usePg) {
+    const d = await readLocal();
+    d.messages = d.messages || [];
+    const i = d.messages.findIndex((y) => y.id === x.id);
+    if (i >= 0) d.messages[i] = x; else d.messages.push(x);
+    return writeLocal(d);
+  }
+  const sql = await pg();
+  await sql`INSERT INTO messages (id, chat_id, data) VALUES (${x.id}, ${x.chatId}, ${JSON.stringify(x)}::jsonb)
+    ON CONFLICT (id) DO UPDATE SET chat_id=EXCLUDED.chat_id, data=EXCLUDED.data`;
+}
+
+export async function deleteMessage(id: string) {
+  return deleteRow("messages", "messages", id);
+}
+
+// --- Outbox ---
+
+export async function listOutbox(): Promise<OutboxRow[]> {
+  if (!usePg) return (await readLocal()).outbox || [];
+  const sql = await pg();
+  const r = await sql`SELECT data FROM outbox ORDER BY data->>'createdAt' DESC`;
+  return r.rows.map((x: any) => x.data as OutboxRow);
+}
+
+export async function getOutboxRow(id: string): Promise<OutboxRow | null> {
+  if (!usePg) return ((await readLocal()).outbox || []).find((x) => x.id === id) ?? null;
+  const sql = await pg();
+  const r = await sql`SELECT data FROM outbox WHERE id=${id}`;
+  return (r.rows[0]?.data as OutboxRow) ?? null;
+}
+
+export async function saveOutboxRow(x: OutboxRow) {
+  if (!usePg) {
+    const d = await readLocal();
+    d.outbox = d.outbox || [];
+    const i = d.outbox.findIndex((y) => y.id === x.id);
+    if (i >= 0) d.outbox[i] = x; else d.outbox.push(x);
+    return writeLocal(d);
+  }
+  const sql = await pg();
+  await sql`INSERT INTO outbox (id, data) VALUES (${x.id}, ${JSON.stringify(x)}::jsonb)
+    ON CONFLICT (id) DO UPDATE SET data=EXCLUDED.data`;
+}
+
+export async function deleteOutboxRow(id: string) {
+  return deleteRow("outbox", "outbox", id);
+}
+
+// --- Questions ---
+
+export async function listQuestions(): Promise<Question[]> {
+  if (!usePg) return (await readLocal()).questions || [];
+  const sql = await pg();
+  const r = await sql`SELECT data FROM questions ORDER BY data->>'createdAt' DESC`;
+  return r.rows.map((x: any) => x.data as Question);
+}
+
+export async function getQuestion(id: string): Promise<Question | null> {
+  if (!usePg) return ((await readLocal()).questions || []).find((x) => x.id === id) ?? null;
+  const sql = await pg();
+  const r = await sql`SELECT data FROM questions WHERE id=${id}`;
+  return (r.rows[0]?.data as Question) ?? null;
+}
+
+export async function saveQuestion(x: Question) {
+  if (!usePg) {
+    const d = await readLocal();
+    d.questions = d.questions || [];
+    const i = d.questions.findIndex((y) => y.id === x.id);
+    if (i >= 0) d.questions[i] = x; else d.questions.push(x);
+    return writeLocal(d);
+  }
+  const sql = await pg();
+  await sql`INSERT INTO questions (id, data) VALUES (${x.id}, ${JSON.stringify(x)}::jsonb)
+    ON CONFLICT (id) DO UPDATE SET data=EXCLUDED.data`;
+}
+
+export async function deleteQuestion(id: string) {
+  return deleteRow("questions", "questions", id);
+}
+
+// --- Quotes (Haim only, P3) ---
+
+export async function listQuotes(factoryProductId?: string): Promise<QuoteRow[]> {
+  if (!usePg) {
+    const all = (await readLocal()).quotes || [];
+    return factoryProductId ? all.filter((x) => x.factoryProductId === factoryProductId) : all;
+  }
+  const sql = await pg();
+  const r = factoryProductId
+    ? await sql`SELECT data FROM quotes WHERE factory_product_id=${factoryProductId} ORDER BY data->>'createdAt' DESC`
+    : await sql`SELECT data FROM quotes ORDER BY data->>'createdAt' DESC`;
+  return r.rows.map((x: any) => x.data as QuoteRow);
+}
+
+export async function getQuote(id: string): Promise<QuoteRow | null> {
+  if (!usePg) return ((await readLocal()).quotes || []).find((x) => x.id === id) ?? null;
+  const sql = await pg();
+  const r = await sql`SELECT data FROM quotes WHERE id=${id}`;
+  return (r.rows[0]?.data as QuoteRow) ?? null;
+}
+
+export async function saveQuote(x: QuoteRow) {
+  if (!usePg) {
+    const d = await readLocal();
+    d.quotes = d.quotes || [];
+    const i = d.quotes.findIndex((y) => y.id === x.id);
+    if (i >= 0) d.quotes[i] = x; else d.quotes.push(x);
+    return writeLocal(d);
+  }
+  const sql = await pg();
+  await sql`INSERT INTO quotes (id, factory_product_id, data) VALUES (${x.id}, ${x.factoryProductId}, ${JSON.stringify(x)}::jsonb)
+    ON CONFLICT (id) DO UPDATE SET factory_product_id=EXCLUDED.factory_product_id, data=EXCLUDED.data`;
+}
+
+export async function deleteQuote(id: string) {
+  return deleteRow("quotes", "quotes", id);
+}
+
+// --- Open items ---
+
+export async function listOpenItems(factoryProductId?: string): Promise<OpenItem[]> {
+  if (!usePg) {
+    const all = (await readLocal()).openItems || [];
+    return factoryProductId ? all.filter((x) => x.factoryProductId === factoryProductId) : all;
+  }
+  const sql = await pg();
+  const r = factoryProductId
+    ? await sql`SELECT data FROM open_items WHERE factory_product_id=${factoryProductId} ORDER BY data->>'openedAt' DESC`
+    : await sql`SELECT data FROM open_items ORDER BY data->>'openedAt' DESC`;
+  return r.rows.map((x: any) => x.data as OpenItem);
+}
+
+export async function getOpenItem(id: string): Promise<OpenItem | null> {
+  if (!usePg) return ((await readLocal()).openItems || []).find((x) => x.id === id) ?? null;
+  const sql = await pg();
+  const r = await sql`SELECT data FROM open_items WHERE id=${id}`;
+  return (r.rows[0]?.data as OpenItem) ?? null;
+}
+
+export async function saveOpenItem(x: OpenItem) {
+  if (!usePg) {
+    const d = await readLocal();
+    d.openItems = d.openItems || [];
+    const i = d.openItems.findIndex((y) => y.id === x.id);
+    if (i >= 0) d.openItems[i] = x; else d.openItems.push(x);
+    return writeLocal(d);
+  }
+  const sql = await pg();
+  await sql`INSERT INTO open_items (id, factory_product_id, data) VALUES (${x.id}, ${x.factoryProductId}, ${JSON.stringify(x)}::jsonb)
+    ON CONFLICT (id) DO UPDATE SET factory_product_id=EXCLUDED.factory_product_id, data=EXCLUDED.data`;
+}
+
+export async function deleteOpenItem(id: string) {
+  return deleteRow("open_items", "openItems", id);
+}
+
+// --- Samples ---
+
+export async function listSamples(factoryProductId?: string): Promise<Sample[]> {
+  if (!usePg) {
+    const all = (await readLocal()).samples || [];
+    return factoryProductId ? all.filter((x) => x.factoryProductId === factoryProductId) : all;
+  }
+  const sql = await pg();
+  const r = factoryProductId
+    ? await sql`SELECT data FROM samples WHERE factory_product_id=${factoryProductId} ORDER BY data->>'createdAt' DESC`
+    : await sql`SELECT data FROM samples ORDER BY data->>'createdAt' DESC`;
+  return r.rows.map((x: any) => x.data as Sample);
+}
+
+export async function getSample(id: string): Promise<Sample | null> {
+  if (!usePg) return ((await readLocal()).samples || []).find((x) => x.id === id) ?? null;
+  const sql = await pg();
+  const r = await sql`SELECT data FROM samples WHERE id=${id}`;
+  return (r.rows[0]?.data as Sample) ?? null;
+}
+
+export async function saveSample(x: Sample) {
+  if (!usePg) {
+    const d = await readLocal();
+    d.samples = d.samples || [];
+    const i = d.samples.findIndex((y) => y.id === x.id);
+    if (i >= 0) d.samples[i] = x; else d.samples.push(x);
+    return writeLocal(d);
+  }
+  const sql = await pg();
+  await sql`INSERT INTO samples (id, factory_product_id, data) VALUES (${x.id}, ${x.factoryProductId}, ${JSON.stringify(x)}::jsonb)
+    ON CONFLICT (id) DO UPDATE SET factory_product_id=EXCLUDED.factory_product_id, data=EXCLUDED.data`;
+}
+
+export async function deleteSample(id: string) {
+  return deleteRow("samples", "samples", id);
+}
+
+// --- Shipments ---
+
+export async function listShipments(): Promise<Shipment[]> {
+  if (!usePg) return (await readLocal()).shipments || [];
+  const sql = await pg();
+  const r = await sql`SELECT data FROM shipments ORDER BY data->>'createdAt' DESC`;
+  return r.rows.map((x: any) => x.data as Shipment);
+}
+
+export async function getShipment(id: string): Promise<Shipment | null> {
+  if (!usePg) return ((await readLocal()).shipments || []).find((x) => x.id === id) ?? null;
+  const sql = await pg();
+  const r = await sql`SELECT data FROM shipments WHERE id=${id}`;
+  return (r.rows[0]?.data as Shipment) ?? null;
+}
+
+export async function saveShipment(x: Shipment) {
+  if (!usePg) {
+    const d = await readLocal();
+    d.shipments = d.shipments || [];
+    const i = d.shipments.findIndex((y) => y.id === x.id);
+    if (i >= 0) d.shipments[i] = x; else d.shipments.push(x);
+    return writeLocal(d);
+  }
+  const sql = await pg();
+  await sql`INSERT INTO shipments (id, data) VALUES (${x.id}, ${JSON.stringify(x)}::jsonb)
+    ON CONFLICT (id) DO UPDATE SET data=EXCLUDED.data`;
+}
+
+export async function deleteShipment(id: string) {
+  return deleteRow("shipments", "shipments", id);
+}
+
+// --- Shipment items ---
+
+export async function listShipmentItems(shipmentId?: string): Promise<ShipmentItem[]> {
+  if (!usePg) {
+    const all = (await readLocal()).shipmentItems || [];
+    return shipmentId ? all.filter((x) => x.shipmentId === shipmentId) : all;
+  }
+  const sql = await pg();
+  const r = shipmentId
+    ? await sql`SELECT data FROM shipment_items WHERE shipment_id=${shipmentId}`
+    : await sql`SELECT data FROM shipment_items`;
+  return r.rows.map((x: any) => x.data as ShipmentItem);
+}
+
+export async function getShipmentItem(id: string): Promise<ShipmentItem | null> {
+  if (!usePg) return ((await readLocal()).shipmentItems || []).find((x) => x.id === id) ?? null;
+  const sql = await pg();
+  const r = await sql`SELECT data FROM shipment_items WHERE id=${id}`;
+  return (r.rows[0]?.data as ShipmentItem) ?? null;
+}
+
+export async function saveShipmentItem(x: ShipmentItem) {
+  if (!usePg) {
+    const d = await readLocal();
+    d.shipmentItems = d.shipmentItems || [];
+    const i = d.shipmentItems.findIndex((y) => y.id === x.id);
+    if (i >= 0) d.shipmentItems[i] = x; else d.shipmentItems.push(x);
+    return writeLocal(d);
+  }
+  const sql = await pg();
+  await sql`INSERT INTO shipment_items (id, shipment_id, data) VALUES (${x.id}, ${x.shipmentId}, ${JSON.stringify(x)}::jsonb)
+    ON CONFLICT (id) DO UPDATE SET shipment_id=EXCLUDED.shipment_id, data=EXCLUDED.data`;
+}
+
+export async function deleteShipmentItem(id: string) {
+  return deleteRow("shipment_items", "shipmentItems", id);
+}
+
+// --- Notifications (Donna to Ours contacts only, sent automatically) ---
+
+export async function listNotifications(): Promise<Notification[]> {
+  if (!usePg) return (await readLocal()).notifications || [];
+  const sql = await pg();
+  const r = await sql`SELECT data FROM notifications ORDER BY data->>'createdAt' DESC`;
+  return r.rows.map((x: any) => x.data as Notification);
+}
+
+export async function getNotification(id: string): Promise<Notification | null> {
+  if (!usePg) return ((await readLocal()).notifications || []).find((x) => x.id === id) ?? null;
+  const sql = await pg();
+  const r = await sql`SELECT data FROM notifications WHERE id=${id}`;
+  return (r.rows[0]?.data as Notification) ?? null;
+}
+
+export async function saveNotification(x: Notification) {
+  if (!usePg) {
+    const d = await readLocal();
+    d.notifications = d.notifications || [];
+    const i = d.notifications.findIndex((y) => y.id === x.id);
+    if (i >= 0) d.notifications[i] = x; else d.notifications.push(x);
+    return writeLocal(d);
+  }
+  const sql = await pg();
+  await sql`INSERT INTO notifications (id, data) VALUES (${x.id}, ${JSON.stringify(x)}::jsonb)
+    ON CONFLICT (id) DO UPDATE SET data=EXCLUDED.data`;
+}
+
+export async function deleteNotification(id: string) {
+  return deleteRow("notifications", "notifications", id);
+}
+
+// --- Activity log (P10: automatic non-message actions logged with Undo) ---
+
+export async function listActivity(): Promise<ActivityLogEntry[]> {
+  if (!usePg) return (await readLocal()).activityLog || [];
+  const sql = await pg();
+  const r = await sql`SELECT data FROM activity_log ORDER BY data->>'createdAt' DESC`;
+  return r.rows.map((x: any) => x.data as ActivityLogEntry);
+}
+
+export async function getActivityEntry(id: string): Promise<ActivityLogEntry | null> {
+  if (!usePg) return ((await readLocal()).activityLog || []).find((x) => x.id === id) ?? null;
+  const sql = await pg();
+  const r = await sql`SELECT data FROM activity_log WHERE id=${id}`;
+  return (r.rows[0]?.data as ActivityLogEntry) ?? null;
+}
+
+export async function saveActivityEntry(x: ActivityLogEntry) {
+  if (!usePg) {
+    const d = await readLocal();
+    d.activityLog = d.activityLog || [];
+    const i = d.activityLog.findIndex((y) => y.id === x.id);
+    if (i >= 0) d.activityLog[i] = x; else d.activityLog.push(x);
+    return writeLocal(d);
+  }
+  const sql = await pg();
+  await sql`INSERT INTO activity_log (id, data) VALUES (${x.id}, ${JSON.stringify(x)}::jsonb)
+    ON CONFLICT (id) DO UPDATE SET data=EXCLUDED.data`;
+}
+
+export async function deleteActivityEntry(id: string) {
+  return deleteRow("activity_log", "activityLog", id);
+}
+
+export async function logActivity(
+  actor: ActivityActor,
+  action: string,
+  entity: string,
+  entityId: string,
+  before: any,
+  after: any,
+  undoable: boolean,
+): Promise<ActivityLogEntry> {
+  const entry: ActivityLogEntry = {
+    id: uid(),
+    actor,
+    action,
+    entity,
+    entityId,
+    before: before ?? null,
+    after: after ?? null,
+    undoable,
+    undoneAt: null,
+    createdAt: Date.now(),
+  };
+  await saveActivityEntry(entry);
+  return entry;
+}
+
+// --- Agent jobs ---
+
+export async function listAgentJobs(): Promise<AgentJob[]> {
+  if (!usePg) return (await readLocal()).agentJobs || [];
+  const sql = await pg();
+  const r = await sql`SELECT data FROM agent_jobs ORDER BY data->>'createdAt' DESC`;
+  return r.rows.map((x: any) => x.data as AgentJob);
+}
+
+export async function getAgentJob(id: string): Promise<AgentJob | null> {
+  if (!usePg) return ((await readLocal()).agentJobs || []).find((x) => x.id === id) ?? null;
+  const sql = await pg();
+  const r = await sql`SELECT data FROM agent_jobs WHERE id=${id}`;
+  return (r.rows[0]?.data as AgentJob) ?? null;
+}
+
+export async function saveAgentJob(x: AgentJob) {
+  if (!usePg) {
+    const d = await readLocal();
+    d.agentJobs = d.agentJobs || [];
+    const i = d.agentJobs.findIndex((y) => y.id === x.id);
+    if (i >= 0) d.agentJobs[i] = x; else d.agentJobs.push(x);
+    return writeLocal(d);
+  }
+  const sql = await pg();
+  await sql`INSERT INTO agent_jobs (id, data) VALUES (${x.id}, ${JSON.stringify(x)}::jsonb)
+    ON CONFLICT (id) DO UPDATE SET data=EXCLUDED.data`;
+}
+
+export async function deleteAgentJob(id: string) {
+  return deleteRow("agent_jobs", "agentJobs", id);
+}
+
+// --- Undo (P10): reverse one undoable activity entry, then mark it undone ---
+
+export type UndoError = "not_found" | "not_undoable" | "unsupported_collection";
+
+async function applyUndoPlan(plan: UndoPlan): Promise<UndoError | null> {
+  const { collection, id, restore, remove } = plan;
+  switch (collection) {
+    case "contacts":
+      if (remove) await deleteContact(id);
+      else await saveContact(restore);
+      return null;
+    case "factory_products":
+      if (remove) await deleteFactoryProduct(id);
+      else await saveFactoryProduct(restore);
+      return null;
+    case "spec_versions":
+      if (remove) await deleteSpecVersion(id);
+      else await saveSpecVersion(restore);
+      return null;
+    case "adjustments":
+      if (remove) await deleteAdjustment(id);
+      else await saveAdjustment(restore);
+      return null;
+    case "contact_channels":
+      if (remove) await deleteContactChannel(id);
+      else await saveContactChannel(restore);
+      return null;
+    case "chats":
+      if (remove) await deleteChat(id);
+      else await saveChat(restore);
+      return null;
+    case "chat_members":
+      if (remove) await deleteChatMember(id);
+      else await saveChatMember(restore);
+      return null;
+    case "messages":
+      if (remove) await deleteMessage(id);
+      else await saveMessage(restore);
+      return null;
+    case "outbox":
+      if (remove) await deleteOutboxRow(id);
+      else await saveOutboxRow(restore);
+      return null;
+    case "questions":
+      if (remove) await deleteQuestion(id);
+      else await saveQuestion(restore);
+      return null;
+    case "quotes":
+      if (remove) await deleteQuote(id);
+      else await saveQuote(restore);
+      return null;
+    case "open_items":
+      if (remove) await deleteOpenItem(id);
+      else await saveOpenItem(restore);
+      return null;
+    case "samples":
+      if (remove) await deleteSample(id);
+      else await saveSample(restore);
+      return null;
+    case "shipments":
+      if (remove) await deleteShipment(id);
+      else await saveShipment(restore);
+      return null;
+    case "shipment_items":
+      if (remove) await deleteShipmentItem(id);
+      else await saveShipmentItem(restore);
+      return null;
+    case "notifications":
+      if (remove) await deleteNotification(id);
+      else await saveNotification(restore);
+      return null;
+    case "activity_log":
+      if (remove) await deleteActivityEntry(id);
+      else await saveActivityEntry(restore);
+      return null;
+    case "agent_jobs":
+      if (remove) await deleteAgentJob(id);
+      else await saveAgentJob(restore);
+      return null;
+    default:
+      return "unsupported_collection";
+  }
+}
+
+export async function undoActivityEntry(
+  id: string,
+): Promise<{ entry: ActivityLogEntry } | { error: UndoError }> {
+  const entry = await getActivityEntry(id);
+  if (!entry) return { error: "not_found" };
+  const plan = planUndo(entry);
+  if (!plan) return { error: "not_undoable" };
+  const unsupported = await applyUndoPlan(plan);
+  if (unsupported) return { error: unsupported };
+  const done: ActivityLogEntry = { ...entry, undoneAt: Date.now() };
+  await saveActivityEntry(done);
+  return { entry: done };
 }
