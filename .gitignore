@@ -43,3 +43,6 @@ next-env.d.ts
 
 # local data (never commit)
 /data/
+
+# e2e local auth
+tests/e2e/.e2e-cookie

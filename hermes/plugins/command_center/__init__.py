@@ -25,6 +25,7 @@ import contextlib
 import json
 import logging
 import os
+import re
 import threading
 import time
 import urllib.request
@@ -138,6 +139,36 @@ def _api(method: str, path: str, body=None):
         return None
 
 
+_APPROVAL_YN = re.compile(r"^([YN])\s*(\d+)(?:\.(\d+))?\s*$", re.IGNORECASE)
+_APPROVAL_S = re.compile(r"^S\s*(\d+)(?:\.(\d+))?\s+([\s\S]+)$", re.IGNORECASE)
+
+
+def _parse_approval_code(text: str):
+    """Mirror of dashboard src/lib/cc/approval-codes.ts. Returns a dict or None."""
+    t = (text or "").strip()
+    m = _APPROVAL_YN.match(t)
+    if m:
+        return {"action": "approve" if m.group(1).upper() == "Y" else "disapprove", "code": t}
+    m = _APPROVAL_S.match(t)
+    if m and (m.group(3) or "").strip():
+        return {"action": "suggest", "code": t}
+    return None
+
+
+def _handle_haim_dm_approval(source, event) -> dict | None:
+    """Haim's WhatsApp shortcut (Goal 7): Y/N/S codes go to /api/agent/approval-reply,
+    never to an agent session. Returns a skip verdict, or None to keep normal dispatch."""
+    text = str(getattr(event, "text", "") or "")
+    if not _parse_approval_code(text):
+        return None
+    res = _api("POST", "/api/agent/approval-reply", {
+        "text": text.strip(),
+        "from": str(getattr(source, "user_id", "") or getattr(source, "user_name", "") or ""),
+    })
+    logger.info("command_center: approval-reply %s -> %s", text.strip()[:60], (res or {}).get("action"))
+    return {"action": "skip", "reason": "haim-approval-code"}
+
+
 def _is_haim_dm(source) -> bool:
     if (getattr(source, "chat_type", "") or "") != "dm":
         return False
@@ -165,7 +196,10 @@ def on_pre_gateway_dispatch(event=None, gateway=None, **_):
         if platform not in ("whatsapp", "email"):
             return None
         if _is_haim_dm(source):
-            return None  # Haim's DM keeps working normally
+            # Haim's DM: approval codes go to approval-reply, never to an agent.
+            # Everything else keeps working normally.
+            verdict = _handle_haim_dm_approval(source, event)
+            return verdict
         if not _chat_allowed(source):
             return None  # not allowlisted: leave current behavior untouched
         chat_type = getattr(source, "chat_type", "") or "group"
@@ -1069,7 +1103,8 @@ def _outbox_loop() -> None:
             time.sleep(10)
             for kind in ("outbox", "notifications"):
                 res = _api("POST", f"/api/agent/{kind}/claim", {})
-                row = (res or {}).get("row") or (res or {}).get("notification")
+                # Outbox claim returns {"outbox": row}; notifications {"notification": row}.
+                row = (res or {}).get("outbox") or (res or {}).get("row") or (res or {}).get("notification")
                 if not row:
                     continue
                 _send_row(kind, row)
@@ -1079,8 +1114,10 @@ def _outbox_loop() -> None:
 
 def _send_row(kind: str, row: dict) -> None:
     rid = row.get("id")
+    lease_token = row.get("lease_token") or ""
     try:
-        chat_id = row.get("chat_id", "")
+        # Prefer the bridge-routable external chat id (server-enriched); fall back to chat_id.
+        chat_id = row.get("chat_external_id") or row.get("chat_id", "")
         bubbles = row.get("bubbles") or ([row.get("text")] if row.get("text") else [])
         ids = []
         for bubble in bubbles:
@@ -1092,11 +1129,11 @@ def _send_row(kind: str, row: dict) -> None:
             mid = res.get("messageId") or res.get("id") or "ok"
             ids.append(mid)
             time.sleep(3)  # 2-4s spacing between bubbles
-        _api("POST", f"/api/agent/{kind}/{rid}/sent", {"external_message_ids": ids})
+        _api("POST", f"/api/agent/{kind}/{rid}/sent", {"lease_token": lease_token, "external_message_ids": ids})
         logger.info("command_center: %s %s sent (%d bubbles)", kind, rid, len(ids))
     except Exception as exc:
         logger.warning("command_center: %s %s failed: %s", kind, rid, exc)
-        _api("POST", f"/api/agent/{kind}/{rid}/failed", {"error": str(exc)[:500]})
+        _api("POST", f"/api/agent/{kind}/{rid}/failed", {"lease_token": lease_token, "error": str(exc)[:500]})
 
 
 def _tick_loop() -> None:
