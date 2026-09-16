@@ -10,24 +10,11 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
 export interface StageLadderProps {
   specApproved: boolean;
-  specNeedsInput: number; // count of fields with empty values
   fbaSheetUrl: string | null;
   factoryCount: number;
-  factoriesWithStep1: number;
-  factoriesWithStep3: number;
-  factoriesWithStep4: number;
-  samplesPassedChina: number;
-  samplesArrivedNY: number;
-  samplesApproved: number;
   onStage1Action: () => void;
   onStage2Action: () => void;
   onStage3Action: () => void;
-  onStage4Action: (factoryId: string) => void;
-  onStage5Action: (factoryId: string) => void;
-  onStage6Action: () => void;
-  onStage7Action: () => void;
-  onStage8Action: () => void;
-  factories: Array<{ id: string; name: string; fstage: string }>;
 }
 
 type StageState = "done" | "current" | "not-started";
@@ -57,11 +44,7 @@ export function StageLadder(props: StageLadderProps) {
       n: 1,
       label: "Spec approved",
       state: props.specApproved ? "done" : "not-started",
-      sub: props.specApproved
-        ? "Spec approved"
-        : props.specNeedsInput > 0
-          ? `${props.specNeedsInput} fields need input`
-          : "Draft spec",
+      sub: props.specApproved ? "Spec approved" : "Draft spec",
       action: props.onStage1Action,
       actionLabel: props.specApproved ? "Edit spec" : "AI Spec Draft",
     },
@@ -76,86 +59,16 @@ export function StageLadder(props: StageLadderProps) {
     {
       n: 3,
       label: "Factories contacted",
-      state: props.factoriesWithStep1 > 0 ? "done" : "not-started",
+      state: props.factoryCount > 0 ? "done" : "not-started",
       sub: `${props.factoryCount} factor${props.factoryCount === 1 ? "y" : "ies"} for this product`,
       action: props.onStage3Action,
       actionLabel: `Factories (${props.factoryCount})`,
-    },
-    {
-      n: 4,
-      label: "Spec agreed with a factory",
-      state: props.factoriesWithStep3 > 0 ? "done" : "not-started",
-      sub: props.factoriesWithStep3 > 0 ? "Spec agreed" : "No spec agreement yet",
-      actionLabel: "Open factory",
-    },
-    {
-      n: 5,
-      label: "Sample committed",
-      state: props.factoriesWithStep4 > 0 ? "done" : "not-started",
-      sub: props.factoriesWithStep4 > 0 ? "Sample committed" : "No sample yet",
-      actionLabel: "Open factory",
-    },
-    {
-      n: 6,
-      label: "Passed China check",
-      state: props.samplesPassedChina > 0 ? "done" : "not-started",
-      sub: props.samplesPassedChina > 0 ? `${props.samplesPassedChina} passed` : "No samples checked",
-      action: props.onStage6Action,
-      actionLabel: "Samples, China tab",
-    },
-    {
-      n: 7,
-      label: "Arrived in New York",
-      state: props.samplesArrivedNY > 0 ? "done" : "not-started",
-      sub: props.samplesArrivedNY > 0 ? `${props.samplesArrivedNY} arrived` : "No NY arrivals",
-      action: props.onStage7Action,
-      actionLabel: "Samples, New York tab",
-    },
-    {
-      n: 8,
-      label: "Sample approved",
-      state: props.samplesApproved > 0 ? "done" : "not-started",
-      sub: props.samplesApproved > 0 ? `${props.samplesApproved} approved` : "No approvals",
-      action: props.onStage8Action,
-      actionLabel: "Open sample",
     },
   ];
 
   // Determine current stage = first not-done
   const currentIdx = stages.findIndex((s) => s.state !== "done");
   if (currentIdx >= 0) stages[currentIdx].state = "current";
-
-  // For stages 4 and 5, wire the action to the first factory that qualifies
-  const factoryForStep3 = props.factories.find(
-    (f) =>
-      f.fstage === "sample_requested" ||
-      f.fstage === "sample_yiwu" ||
-      f.fstage === "sample_ny" ||
-      f.fstage === "sample_confirmed" ||
-      f.fstage === "quoted" ||
-      f.fstage === "negotiating" ||
-      f.fstage === "ordered",
-  );
-  const factoryForStep4 = props.factories.find(
-    (f) =>
-      f.fstage === "sample_yiwu" ||
-      f.fstage === "sample_ny" ||
-      f.fstage === "sample_confirmed" ||
-      f.fstage === "quoted" ||
-      f.fstage === "negotiating" ||
-      f.fstage === "ordered",
-  );
-
-  if (stages[3].state !== "done" && factoryForStep3) {
-    stages[3].action = () => props.onStage4Action(factoryForStep3.id);
-  } else if (stages[3].state === "done" && factoryForStep3) {
-    stages[3].action = () => props.onStage4Action(factoryForStep3.id);
-  }
-  if (stages[4].state !== "done" && factoryForStep4) {
-    stages[4].action = () => props.onStage5Action(factoryForStep4.id);
-  } else if (stages[4].state === "done" && factoryForStep4) {
-    stages[4].action = () => props.onStage5Action(factoryForStep4.id);
-  }
 
   return (
     <Card data-testid="stage-ladder">

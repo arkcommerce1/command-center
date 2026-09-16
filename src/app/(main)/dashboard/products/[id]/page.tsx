@@ -50,6 +50,113 @@ function StageBadge({ v, map }: { v: string; map?: Record<string, string> }) {
   );
 }
 
+function FactoryLadder({ factoryId, factoryStage, onStageChange, onSamplesChina, onSamplesNY, hasSamples }: {
+  factoryId: string;
+  factoryStage: string;
+  onStageChange: (s: string) => void;
+  onSamplesChina: () => void;
+  onSamplesNY: () => void;
+  hasSamples: boolean;
+}) {
+  const steps = [
+    { n: 1, key: "spec_agreed", label: "Spec agreed", sub: "Factory confirmed the spec" },
+    { n: 2, key: "sample_committed", label: "Sample committed", sub: "Factory agreed to send a sample" },
+    { n: 3, key: "passed_china", label: "Passed China check", sub: "Yuki approved the sample in Yiwu" },
+    { n: 4, key: "arrived_ny", label: "Arrived in New York", sub: "Sample shipped to NY office" },
+    { n: 5, key: "sample_approved", label: "Sample approved", sub: "Haim approved the sample" },
+  ];
+  const currentIdx = steps.findIndex((s) => s.key === factoryStage);
+  return (
+    <Card>
+      <CardHeader className="pb-2">
+        <CardTitle className="text-sm">Factory pipeline</CardTitle>
+      </CardHeader>
+      <CardContent>
+        <div className="flex flex-col gap-1">
+          {steps.map((s, i) => {
+            const state = i < currentIdx ? "done" : i === currentIdx ? "current" : "not-started";
+            return (
+              <div key={s.n} className="flex items-stretch gap-2">
+                <div className="flex flex-col items-center pt-1">
+                  <div className={`flex h-6 w-6 items-center justify-center rounded-full border-2 text-xs font-medium ${
+                    state === "done" ? "border-emerald-300 bg-emerald-50 dark:border-emerald-800 dark:bg-emerald-950/30" :
+                    state === "current" ? "border-blue-300 bg-blue-50 dark:border-blue-800 dark:bg-blue-950/30" :
+                    "border-border bg-card"
+                  }`}>
+                    {state === "done" ? "✓" : s.n}
+                  </div>
+                  {i < steps.length - 1 && <div className={`mt-0.5 w-px flex-1 ${state === "done" ? "bg-emerald-200" : "bg-border"}`} />}
+                </div>
+                <div className="flex flex-1 flex-wrap items-center gap-2 pb-2">
+                  <div className="flex-1">
+                    <div className="text-sm font-medium">{s.label}</div>
+                    <p className="text-xs text-muted-foreground">{s.sub}</p>
+                  </div>
+                  {i === currentIdx && i < steps.length - 1 && (
+                    <Button size="sm" variant="outline" onClick={() => onStageChange(steps[i + 1].key)}>
+                      Advance →
+                    </Button>
+                  )}
+                  {i === currentIdx && i === 2 && (
+                    <Button size="sm" variant="ghost" onClick={onSamplesChina}>Samples, China tab</Button>
+                  )}
+                  {i === currentIdx && i === 3 && (
+                    <Button size="sm" variant="ghost" onClick={onSamplesNY}>Samples, NY tab</Button>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+        {hasSamples && currentIdx >= 1 && (
+          <div className="mt-2 flex gap-2">
+            <Button size="sm" variant="ghost" onClick={onSamplesChina}>Samples, China tab</Button>
+            <Button size="sm" variant="ghost" onClick={onSamplesNY}>Samples, New York tab</Button>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function AddContactRow({ factoryId, onAdded }: { factoryId: string; onAdded: () => void }) {
+  const [name, setName] = React.useState("");
+  const [whatsapp, setWhatsapp] = React.useState("");
+  return (
+    <div className="mt-2 flex gap-1">
+      <Input
+        value={name}
+        onChange={(e) => setName(e.target.value)}
+        placeholder="Contact name…"
+        className="h-8 text-xs"
+      />
+      <Input
+        value={whatsapp}
+        onChange={(e) => setWhatsapp(e.target.value)}
+        placeholder="WhatsApp #…"
+        className="h-8 text-xs w-32"
+      />
+      <Button
+        size="sm"
+        variant="outline"
+        disabled={!name.trim()}
+        onClick={async () => {
+          await fetch(`/api/factories/${factoryId}`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ addPerson: { name: name.trim(), whatsapp: whatsapp.trim(), role: "" } }),
+          });
+          setName("");
+          setWhatsapp("");
+          onAdded();
+        }}
+      >
+        + Add
+      </Button>
+    </div>
+  );
+}
+
 export default function ProductDetail({ params }: { params: Promise<{ id: string }> }) {
   const { id } = React.use(params);
   const [p, setP] = React.useState<any>(null);
@@ -214,29 +321,6 @@ export default function ProductDetail({ params }: { params: Promise<{ id: string
   const displayVerFields: any[] = (viewingVer ? (viewingVer as any).fields : specVersionsList[0]?.fields || []).filter((f: any) => f.value && f.value !== "Needs input");
   const fbaSheetUrl = (p as any)?.fbaSheetUrl || null;
   const factoryCount = fs.length;
-  const factoriesWithStep1 = fs.filter((f) => f.fstage && f.fstage !== "intro").length;
-  const factoriesWithStep3 = fs.filter((f) =>
-    ["sample_requested", "sample_yiwu", "sample_ny", "sample_confirmed", "quoted", "negotiating", "ordered"].includes(
-      f.fstage,
-    ),
-  ).length;
-  const factoriesWithStep4 = fs.filter((f) =>
-    ["sample_yiwu", "sample_ny", "sample_confirmed", "quoted", "negotiating", "ordered"].includes(f.fstage),
-  ).length;
-  const samplesPassedChina = 0; // Goal 10 will populate
-  const samplesArrivedNY = 0;
-  const samplesApproved = 0;
-
-  function openFactory(fid: string) {
-    setOpenId(fid);
-  }
-
-  function gotoSamplesChina() {
-    window.location.href = "/dashboard/samples?tab=china";
-  }
-  function gotoSamplesNY() {
-    window.location.href = "/dashboard/samples?tab=ny";
-  }
 
   // --- Loading state ---
   if (loading) {
@@ -342,31 +426,38 @@ export default function ProductDetail({ params }: { params: Promise<{ id: string
         </div>
       </div>
 
-      {/* Stage ladder — replaces the loose Start checklist */}
+      {/* Stage ladder — product-level steps 1-3 only */}
       <StageLadder
         specApproved={specApproved}
-        specNeedsInput={specNeedsInput}
         fbaSheetUrl={fbaSheetUrl}
         factoryCount={factoryCount}
-        factoriesWithStep1={factoriesWithStep1}
-        factoriesWithStep3={factoriesWithStep3}
-        factoriesWithStep4={factoriesWithStep4}
-        samplesPassedChina={samplesPassedChina}
-        samplesArrivedNY={samplesArrivedNY}
-        samplesApproved={samplesApproved}
         onStage1Action={() => document.getElementById("spec-card")?.scrollIntoView({ behavior: "smooth" })}
         onStage2Action={() => {
           if (p.fbaSheetUrl) window.open(p.fbaSheetUrl, "_blank", "noopener,noreferrer");
           else document.getElementById("spec-card")?.scrollIntoView({ behavior: "smooth" });
         }}
         onStage3Action={() => document.getElementById("factories-card")?.scrollIntoView({ behavior: "smooth" })}
-        onStage4Action={openFactory}
-        onStage5Action={openFactory}
-        onStage6Action={gotoSamplesChina}
-        onStage7Action={gotoSamplesNY}
-        onStage8Action={gotoSamplesNY}
-        factories={fs.map((f) => ({ id: f.id, name: f.name, fstage: f.fstage || "intro" }))}
       />
+
+      {/* Factory progress summary (replaces steps 4-8) */}
+      {fs.length > 0 && (
+        <Card>
+          <CardContent className="py-3">
+            <a
+              href="#factories-card"
+              onClick={(e) => { e.preventDefault(); document.getElementById("factories-card")?.scrollIntoView({ behavior: "smooth" }); }}
+              className="text-sm text-muted-foreground hover:text-foreground"
+            >
+              {fs.length} factor{fs.length === 1 ? "y" : "ies"} ·{" "}
+              {fs.filter((f) => (f as any).factoryStage === "spec_agreed").length} spec agreed ·{" "}
+              {fs.filter((f) => (f as any).factoryStage === "sample_committed").length} sample committed ·{" "}
+              {fs.filter((f) => (f as any).factoryStage === "passed_china").length} passed China ·{" "}
+              {fs.filter((f) => (f as any).factoryStage === "arrived_ny").length} arrived NY ·{" "}
+              {fs.filter((f) => (f as any).factoryStage === "sample_approved").length} approved
+            </a>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Factories section — lists factory rows */}
       <Card id="factories-card" data-testid="factories-section">
@@ -770,32 +861,88 @@ export default function ProductDetail({ params }: { params: Promise<{ id: string
       </Card>
 
       <Sheet open={!!df} onOpenChange={(o) => !o && setOpenId(null)}>
-        <SheetContent className="w-[480px] overflow-y-auto sm:max-w-[480px]">
+        <SheetContent className="w-[520px] overflow-y-auto sm:max-w-[520px]">
           {df && (
             <>
               <SheetHeader>
                 <SheetTitle>{df.name}</SheetTitle>
               </SheetHeader>
               <div className="mt-4 flex flex-col gap-4">
-                <p className="text-sm text-muted-foreground">
-                  Factory detail panel is being rebuilt — removed for now per Haim.
-                </p>
-                <div className="flex gap-2">
-                  <Button size="sm" variant="outline" onClick={() => fpatch(df.id, { active: !df.active })}>
-                    {df.active ? "Active" : "Off"}
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="destructive"
-                    onClick={async () => {
-                      if (!confirm(`Remove ${df.name}?`)) return;
-                      await fetch(`/api/factories/${df.id}`, { method: "DELETE" });
-                      setOpenId(null);
-                      load();
-                    }}
-                  >
-                    Remove factory
-                  </Button>
+                {/* Factory-level 5-step ladder */}
+                <FactoryLadder factoryId={df.id} factoryStage={(df as any).factoryStage || "spec_agreed"} onStageChange={(stage) => fpatch(df.id, { factoryStage: stage })} onSamplesChina={() => { window.location.href = "/dashboard/samples?tab=china"; }} onSamplesNY={() => { window.location.href = "/dashboard/samples?tab=ny"; }} hasSamples={!!df.sampleRequestedAt || !!df.sampleShippedAt} />
+
+                {/* Factory details */}
+                <div className="flex flex-col gap-2">
+                  <div className="flex flex-wrap gap-2">
+                    <Button size="sm" variant="outline" onClick={() => fpatch(df.id, { active: !df.active })}>
+                      {df.active ? "Active" : "Off"}
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="destructive"
+                      onClick={async () => {
+                        if (!confirm(`Remove ${df.name}?`)) return;
+                        await fetch(`/api/factories/${df.id}`, { method: "DELETE" });
+                        setOpenId(null);
+                        load();
+                      }}
+                    >
+                      Remove factory
+                    </Button>
+                  </div>
+
+                  {/* Contacts */}
+                  <div className="mt-2">
+                    <div className="text-sm font-medium mb-1">Contacts</div>
+                    {((df as any).people || []).length === 0 && <p className="text-xs text-muted-foreground">No contacts yet.</p>}
+                    {((df as any).people || []).map((person: any) => (
+                      <div key={person.id} className="flex items-center gap-2 text-sm py-1">
+                        <span className="flex-1">{person.name}{person.role ? ` — ${person.role}` : ""}</span>
+                        {person.whatsapp && <span className="text-xs text-muted-foreground">{person.whatsapp}</span>}
+                        <button className="text-xs text-muted-foreground hover:text-destructive" onClick={() => {
+                          const f2 = { ...df, people: df.people.filter((p: any) => p.id !== person.id) };
+                          fpatch(df.id, { people: f2.people });
+                        }}>✕</button>
+                      </div>
+                    ))}
+                    <AddContactRow factoryId={df.id} onAdded={load} />
+                  </div>
+
+                  {/* Quote */}
+                  <div className="mt-2">
+                    <div className="text-sm font-medium mb-1">Quote</div>
+                    {(df.quotes || []).length > 0 ? (
+                      df.quotes.map((q: any, i: number) => (
+                        <div key={i} className="text-sm py-1">
+                          ${q.unitPrice}/unit × {q.qty} units — {q.notes || "no notes"}
+                        </div>
+                      ))
+                    ) : (
+                      <p className="text-xs text-muted-foreground">No quote yet.</p>
+                    )}
+                  </div>
+
+                  {/* Last note / comments */}
+                  <div className="mt-2">
+                    <div className="text-sm font-medium mb-1">Notes</div>
+                    {(df.comments || []).length > 0 ? (
+                      df.comments.slice(0, 5).map((c: any, i: number) => (
+                        <div key={i} className="text-xs text-muted-foreground py-1">{c.text}</div>
+                      ))
+                    ) : (
+                      <p className="text-xs text-muted-foreground">No notes yet.</p>
+                    )}
+                    <Input
+                      className="mt-2"
+                      placeholder="Add a note…"
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" && (e.target as HTMLInputElement).value.trim()) {
+                          fpatch(df.id, { addComment: (e.target as HTMLInputElement).value });
+                          (e.target as HTMLInputElement).value = "";
+                        }
+                      }}
+                    />
+                  </div>
                 </div>
               </div>
             </>
