@@ -141,12 +141,31 @@ Buttons/controls (from reading `src/app/(main)/dashboard/products/[id]/page.tsx`
 
 ## 7. Decisions
 
-- **Anthropic-vs-Nous: UNRESOLVED, awaiting Haim.** SPEC §1.1 prescribes the
-  Anthropic API for on-screen AI (`CC_MODEL`, default `claude-sonnet-5`), but
-  the shipped code (`spec-ai`, `spec-ai-edit`) calls only the Nous Portal
-  (`NOUS_API_KEY`, `z-ai/glm-5.3-flash`) — code comments cite "per Haim's
-  instruction". Goal 1+ must not build on-screen AI until Haim picks a
-  provider. No other decisions taken (Goal 0 changes nothing).
+- **Anthropic-vs-Nous: RESOLVED Sep 16, 2026 — Nous Portal stays.** Haim chose
+  to keep the working Nous setup (`NOUS_API_KEY`, `z-ai/glm-5.3-flash`) over
+  SPEC §1.1's Anthropic API. Wherever SPEC says "Anthropic API"/CC_MODEL,
+  build with Nous Portal instead.
+- **Goal 2 plugin layout (Sep 16, 2026, verified against Hermes source, NOT
+  just docs).** Directory plugin = `<root>/<name>/plugin.yaml` + `__init__.py`
+  exposing `register(ctx)` (`hermes_cli/plugins.py:6-7`). Opt-in via
+  `plugins.enabled` list (`plugins_discovery.py:90-99`; Donna's was `[]`, now
+  `[command_center]`). Per-profile user plugins live in
+  `$HERMES_HOME/plugins/` (= the profile dir for donna-factory). Hook
+  contracts: `pre_gateway_dispatch` → return `{"action":"skip"}` to drop
+  (`gateway/run_inbound.py:41-70`); `pre_tool_call` → return
+  `{"action":"block","message"}` to veto (`plugins.py:1771-1811`).
+  `register_tool(name, toolset, schema, handler, ...)` (`plugins.py:449`);
+  `register_system_prompt_section(id, content, max_chars=4000)` (`plugins.py:917`).
+  No existing plugin used `pre_gateway_dispatch` — command_center is the first.
+- **Goal 2 runtime scoping.** Job runner handles `cc-echo` inline; contacts/
+  organize/etc. stay queued until Goals 3-8 land their skills (poll claims by
+  type, so nothing is lost). Outbox sender posts bubbles to the local Baileys
+  bridge `http://127.0.0.1:3001/send` (same path already proven by manual
+  sends); email-thread rows fail visibly with a clear error. Ingest allowlist
+  via `CC_INGEST_CHATS` (allowlist|all) + `CC_INGEST_ALLOW` (chat names/ids,
+  default `CC Test`) read from Donna's `.env`; non-allowlisted chats keep
+  current behavior (never silently dropped). Live WhatsApp send in CC Test
+  itself is the pending proof (needs one fresh inbound message post-install).
 - **Goal 1 logic modules are pure/in-memory, DB wiring later.** `approval.ts`
   takes an `ApprovalStore` (Maps) instead of touching Postgres, so the Agent
   API routes and dashboard actions will map real tables onto it; unit tests
