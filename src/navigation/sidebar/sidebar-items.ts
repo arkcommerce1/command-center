@@ -1,6 +1,9 @@
 import {
+  Activity,
   CheckSquare,
+  Factory,
   type LucideIcon,
+  Settings,
   ShoppingBag,
   UserRound,
 } from "lucide-react";
@@ -50,9 +53,21 @@ export const sidebarItems: NavGroup[] = [
     items: [
       {
         id: "tonight",
-        title: "Tonight",
-        url: "/dashboard/tonight",
+        title: "Actionables",
+        url: "/dashboard/actionables",
         icon: CheckSquare,
+      },
+      {
+        id: "factories",
+        title: "Factories",
+        url: "/dashboard/factories",
+        icon: Factory,
+      },
+      {
+        id: "activity",
+        title: "Activity",
+        url: "/dashboard/activity",
+        icon: Activity,
       },
       {
         id: "cc-products",
@@ -65,6 +80,12 @@ export const sidebarItems: NavGroup[] = [
         title: "Contacts",
         url: "/dashboard/contacts",
         icon: UserRound,
+      },
+      {
+        id: "settings",
+        title: "Settings",
+        url: "/dashboard/settings/playbook",
+        icon: Settings,
       },
     ],
   },

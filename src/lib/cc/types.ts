@@ -172,3 +172,152 @@ export function blankYukiChecklist(): YukiChecklist {
 export function blankCosts(): Costs {
   return { sellPrice: 0, referralFeePct: 15, fbaFee: 0, dutiesPct: 0, shippingUnit: 0, ppcUnit: 0, monthlySales: 0 };
 }
+
+// --- Playbook / durable settings ---
+export type SampleAskTiming = "after_layer_2" | "after_layer_3";
+
+export interface PlaybookPerson { name: string; role: string; location: string }
+export interface PlaybookHoliday { name: string; startDate: string; endDate: string }
+
+export interface PlaybookSettings {
+  sampleAskTiming: SampleAskTiming;
+  nudgeLimit: number;
+  sampleFeeRule: "always_ask" | string;
+  boxScheduleDay: string;
+  boxScheduleCutoffTime: string;
+  yiwuAddress: string;
+  approachADisclosures: string;
+  ourPeople: PlaybookPerson[];
+  holidays: PlaybookHoliday[];
+}
+
+export function defaultPlaybookSettings(): PlaybookSettings {
+  return {
+    sampleAskTiming: "after_layer_3",
+    nudgeLimit: 2,
+    sampleFeeRule: "always_ask",
+    boxScheduleDay: "",
+    boxScheduleCutoffTime: "",
+    yiwuAddress: "",
+    approachADisclosures: "We sell on Amazon and Retail.",
+    ourPeople: [
+      { name: "Yuki", role: "Factory relations / sourcing", location: "China" },
+      { name: "Shene", role: "Employee", location: "New York" },
+    ],
+    holidays: [
+      { name: "National Day Golden Week", startDate: "2026-10-01", endDate: "2026-10-07" },
+    ],
+  };
+}
+
+export function normSettings(s: any): PlaybookSettings {
+  const d = defaultPlaybookSettings();
+  if (!s || typeof s !== "object") return d;
+  return {
+    sampleAskTiming: s.sampleAskTiming === "after_layer_2" || s.sampleAskTiming === "after_layer_3" ? s.sampleAskTiming : d.sampleAskTiming,
+    nudgeLimit: typeof s.nudgeLimit === "number" ? s.nudgeLimit : d.nudgeLimit,
+    sampleFeeRule: typeof s.sampleFeeRule === "string" ? s.sampleFeeRule : d.sampleFeeRule,
+    boxScheduleDay: typeof s.boxScheduleDay === "string" ? s.boxScheduleDay : d.boxScheduleDay,
+    boxScheduleCutoffTime: typeof s.boxScheduleCutoffTime === "string" ? s.boxScheduleCutoffTime : d.boxScheduleCutoffTime,
+    yiwuAddress: typeof s.yiwuAddress === "string" ? s.yiwuAddress : d.yiwuAddress,
+    approachADisclosures: typeof s.approachADisclosures === "string" ? s.approachADisclosures : d.approachADisclosures,
+    ourPeople: Array.isArray(s.ourPeople)
+      ? s.ourPeople.map((p: any) => ({ name: String(p?.name || ""), role: String(p?.role || ""), location: String(p?.location || "") }))
+      : d.ourPeople,
+    holidays: Array.isArray(s.holidays)
+      ? s.holidays.map((h: any) => ({ name: String(h?.name || ""), startDate: String(h?.startDate || ""), endDate: String(h?.endDate || "") }))
+      : d.holidays,
+  };
+}
+
+// --- Draft / version / approval system (data model only; no live WhatsApp wiring) ---
+
+export type DraftType = "opening" | "reply" | "nudge" | "thanks" | "relay";
+export type DraftLayer = 1 | 2 | 3 | 4 | 5;
+export type DraftStatus = "pending" | "sent" | "disapproved" | "closed";
+
+export interface Draft {
+  id: string;
+  factoryProductId: string; // link to a FactoryProductLink (factory+product pair)
+  type: DraftType;
+  layer: DraftLayer;
+  status: DraftStatus;
+  trigger: string;
+  createdAt: number;
+}
+
+export type DraftVersionCreatedBy = "agent" | "ai_suggestion" | "haim";
+export type DraftVersionStatus = "pending" | "replaced" | "approved" | "disapproved";
+export type ApprovalChannel = "dashboard" | "whatsapp";
+
+export interface GuardrailResult {
+  blocked: boolean;
+  reason: string | null;
+}
+
+export interface DraftVersion {
+  id: string;
+  draftId: string;
+  versionNumber: number;
+  text: string;
+  createdBy: DraftVersionCreatedBy;
+  suggestionText: string | null;
+  basedOnVersion: number | null;
+  guardrailResult: GuardrailResult;
+  status: DraftVersionStatus;
+  approvalChannel: ApprovalChannel | null;
+  approver: string | null;
+  approvedAt: number | null;
+  sentAt: number | null;
+  disapproveReason: string | null;
+  chatMovedOn: boolean;
+  createdAt: number;
+}
+
+export interface LayerProof {
+  id: string;
+  factoryProductId: string;
+  layer: DraftLayer;
+  messageText: string;
+  markedBy: string;
+  markedAt: number;
+}
+
+export type DecisionType = "locked_change" | "fee" | "spec_gap" | "drop" | "quote";
+export type DecisionStatus = "pending" | "resolved";
+
+export interface Decision {
+  id: string;
+  factoryProductId: string;
+  type: DecisionType;
+  options: string[];
+  status: DecisionStatus;
+  chosenOption: string | null;
+  resultingDraftId: string | null;
+  createdAt: number;
+}
+
+export type TrackingStage = "none" | "in_yiwu_qc" | "in_box" | "to_new_york" | "decision";
+export type WaitingOn = "haim" | "factory" | "yuki" | "china_office" | "carrier" | "donna";
+
+export interface DroppedInfo {
+  layer: number;
+  reason: string;
+  suggestedBy: string;
+  confirmedBy: string | null;
+  confirmedAt: number | null;
+}
+
+export interface FactoryProductLink {
+  id: string;
+  companyId: string;
+  productId: string;
+  currentLayer: DraftLayer;
+  trackingStage: TrackingStage;
+  statusLine: string;
+  nextStep: string;
+  waitingOn: WaitingOn | null;
+  since: number;
+  promisedShipDate: string | null;
+  dropped: DroppedInfo | null;
+}
