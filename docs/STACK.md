@@ -261,3 +261,81 @@ Buttons/controls (from reading `src/app/(main)/dashboard/products/[id]/page.tsx`
   `gateway/run_inbound.py`, `agent/tool_executor.py`, `gateway/platforms/webhook.py`).
 - Live: node-fetch status checks of 9 URLs + 1 product-detail page on
   `command-center-review-tau.vercel.app` (git-bash curl avoided per TLS issues).
+- Goal 3 (Sep 16, 2026): Agent API contacts routes
+  (`src/app/api/agent/contacts/route.ts` + `[id]/route.ts` + `merge/route.ts`),
+  ingest route (contacts jobs queued as `{chat_id, message_id}` — minimal,
+  no sender snapshot), jobs claim, context; `src/proxy.ts` (dashboard APIs
+  login-gated, Agent API bearer-only); VPS session creds `me.id`,
+  bridge `/health`, donna-factory config `external_dirs`, gateway process
+  list, installed plugin copy.
+
+## 8. Goal 3 contacts processor (Sep 16, 2026)
+
+- **No-LLM contacts path.** The poller now claims `contacts` jobs too
+  (`HANDLED_JOB_TYPES = {"cc-echo", "contacts"}`) and runs them through
+  pure functions (`detect_self_stated_role`, `plan_contacts_actions`,
+  `_execute_contacts_actions`) — regex plus exact/substring matching,
+  zero LLM calls. Skill `hermes/skills/cc-contacts/SKILL.md` (§1.5
+  frontmatter + When to Use/Procedure/Pitfalls/Verification) documents
+  the same procedure. Installed in-repo, in the VPS plugin copy, and in
+  the VPS skills dir (`/home/openclaw/command-center/hermes/skills/`,
+  which is what donna-factory `external_dirs` points at). Only the
+  donna-factory gateway was restarted (old PID 2681266 → 2693321, runs as
+  `openclaw`); the `donna` gateway (PID 1893255) and all others untouched.
+  Restart is systemd-user supervised, so kill was followed by automatic
+  revive — verified all 8 gateway processes alive, email+WhatsApp
+  connected.
+- **Rules encoded.** Unknown group sender → create (`type factory`,
+  chat factory or blank, `sales_agent`/`default`, templated
+  `WhatsApp <id> in <chat>` description, never invent roles/companies).
+  Role changes only on self-statement (`i am`/`i'm`/`my name is`/`this is`
+  + role word → sales_agent/designer/logistics/owner_manager/qc/other),
+  with `role_note` = their sentence, `role_source` = `self_stated`,
+  `role_proof_message_id` = message text. Third-party descriptions never
+  change roles. Email: exact channel → attach; else domain/company/
+  signature substring vs known factories → create with that factory;
+  else Unmatched entry (blank factory, `Unmatched sender` description).
+  Signature phone/email matching an existing channel → merge endpoint.
+  Every automatic action logs a `command_center: contacts ...` gateway line.
+- **Ours seeds (via Agent API, production).** Haim (`ours`, email
+  haim@everlastingicerx.com + WhatsApp 19179571149, 9294207308, contact
+  id `d7f60emosspb`) and Donna (`ours`, WhatsApp 12292566515, id
+  `ks6lypp6ssst`).
+- **Donna's number: 12292566515.** From session `creds.json` `me.id`
+  (`12292566515:3@s.whatsapp.net`, name "Donna Levine"; read-only, B3
+  intact) with bridge `/health` = `connected`. JID device suffix `:3`
+  stripped.
+- **Yuki: NOT found — flagged for Haim.** No Agent-API endpoint lists
+  chats/messages/contacts (dashboard `/api/chats`, `/api/contacts` are
+  login-gated per `src/proxy.ts`), so no certain Yuki number exists.
+  Do NOT guess; Haim must supply it, then seed like Donna.
+- **Server schema gaps (follow-ups, need deploy).** `PATCH
+  /api/agent/contacts/:id` accepts no `channels` (channel attach only at
+  create or via merge — logged, never faked); POST contacts has no
+  `company` field (`Unmatched` encoded in description); production ingest
+  queues minimal `{chat_id, message_id}` contacts payloads with no sender
+  snapshot, so live jobs take the log-only path until ingest embeds the
+  snapshot (plugin handles both shapes).
+- **Verification (no production test writes).** `/tmp/sim_contacts.py`
+  on VPS ran against the installed file in dry-run: 22/22 checks
+  (create-default, self-role PATCH+proof, third-party no-op, email
+  attach, Unmatched, merge keep/merge ids, minimal-payload log-only,
+  zero HTTP calls in dry-run, role unit cases). Simulation itself caught
+  and fixed two bugs (tuple mutation in create-fold, email early-return
+  skipping merge). Nothing committed/pushed/deployed.
+
+## Still needs live traffic
+
+1. First real unknown sender in an allowlisted group → contact created
+   within 60s (gateway `contacts ... create` line + contact row).
+2. First real self-stated role ("I'm X, the logistics manager") →
+   role `logistics`, `role_source self_stated`, proof linked.
+3. First real signature/phone cross-channel match → merge row.
+4. Post-restart `command_center: background workers started` line
+   appears on the next inbound event (workers start lazily); confirm
+   then.
+5. One transient `POST /api/agent/jobs/claim HTTP 500` seen pre-restart
+   (16:11:35 UTC) — watch whether it recurs.
+6. Yuki's WhatsApp number from Haim, then seed + verify.
+7. Deploy-time follow-ups: ingest sender snapshot in contacts payloads;
+   `channels` on PATCH; `company` on POST contacts.

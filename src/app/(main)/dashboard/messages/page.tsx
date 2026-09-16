@@ -38,8 +38,8 @@ export default function MessagesPage() {
 
   const loadMsgs = React.useCallback(async (chatId: string) => {
     try {
-      const r = await fetch(`/api/messages?chatId=${encodeURIComponent(chatId)}`);
-      if (r.ok) setMsgs(await r.json());
+      const r = await fetch(`/api/messages?chat_id=${encodeURIComponent(chatId)}`);
+      if (r.ok) setMsgs([...(await r.json())].reverse());
     } catch { /* keep old */ }
   }, []);
 

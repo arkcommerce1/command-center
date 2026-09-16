@@ -14,6 +14,7 @@ const ContactCreate = z.object({
   role_note: z.string().optional().default(""),
   role_source: z.enum(["default", "self_stated"]).default("default"),
   description: z.string().optional().default(""),
+  company: z.string().optional().default(""),
   channels: z.array(z.object({ kind: z.string(), value: z.string() })).optional().default([]),
 });
 

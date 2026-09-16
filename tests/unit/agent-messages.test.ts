@@ -56,8 +56,12 @@ describe("GET /api/messages (dashboard read-only slice)", () => {
     const { dbGet, dbPut } = await import("@/lib/cc/agent-store");
     for (const key of ["messages", "chats", "contacts"] as const) {
       const rows = ((await dbGet(key)) as any[]).filter(
-        (x) => x.external_id !== `${tag}-chat-1` && x.external_id !== `${tag}-chat-2` &&
-          x.external_id !== `${tag}-m-old` && x.external_id !== `${tag}-m-new` && x.name !== `${tag} Li Wei`,
+        (x) =>
+          x.external_id !== `${tag}-chat-1` &&
+          x.external_id !== `${tag}-chat-2` &&
+          x.external_id !== `${tag}-m-old` &&
+          x.external_id !== `${tag}-m-new` &&
+          x.name !== `${tag} Li Wei`,
       );
       await dbPut(key, rows as never);
     }

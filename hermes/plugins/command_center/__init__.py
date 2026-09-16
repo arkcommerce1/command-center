@@ -33,9 +33,14 @@ logger = logging.getLogger(__name__)
 BASE_URL = "https://command-center-review-tau.vercel.app"
 BRIDGE_URL = "http://127.0.0.1:3001"
 
-# Job types this runner executes inline. Everything else stays queued until
-# its skill lands (contacts -> Goal 3, organize -> Goal 6, etc.).
-HANDLED_JOB_TYPES = {"cc-echo"}
+# Job types this runner executes inline. contacts (Goal 3) runs
+# deterministically in code (see cc-contacts skill): no LLM involved.
+HANDLED_JOB_TYPES = {"cc-echo", "contacts"}
+
+# Set to "1" to build contacts request bodies without performing any
+# API call (used by fixture simulations; also honored per-payload via
+# payload["dry_run"]).
+DRYRUN_ENV = "CC_CONTACTS_DRYRUN"
 
 # Messaging tools the send-block watches (fail closed: substring match).
 SEND_TOOLS = ("send_message", "send_whatsapp", "whatsapp_send")
@@ -248,6 +253,252 @@ PRODUCT_RULES = """Command Center product rules (enforced by the dashboard API, 
 7. Never pushy about ship timing. No manual data entry: fill data from chats and listings; Haim can edit anything."""
 
 
+# --------------------------------------------------- contacts (Goal 3) ---
+# Deterministic contacts processor (cc-contacts skill). No LLM: pure
+# regex + exact/substring matching, then plain Agent API calls. Every
+# automatic action is logged; dry-run builds bodies without calling.
+
+import re as _re
+
+_SELF_PATTERNS = (
+    _re.compile(r"\bi\s+am\b", _re.I),
+    _re.compile(r"\bi['\u2019]m\b", _re.I),
+    _re.compile(r"\bmy\s+name\s+is\b", _re.I),
+    _re.compile(r"\bthis\s+is\b", _re.I),
+)
+
+# Ordered: first match wins ("sales manager" must beat owner_manager's
+# "manager"; "account manager" likewise).
+_ROLE_KEYWORDS = (
+    ("sales_agent", ("account manager", "sales manager", "sales", "sale",
+                     "salesman", "saleswoman", "salesperson",
+                     "business development")),
+    ("designer", ("designer", "design",)),
+    ("logistics", ("logistics", "supply chain", "shipping", "freight",
+                   "warehouse",)),
+    ("owner_manager", ("general manager", "owner", "manager", "boss",
+                       "director", "ceo", "founder", "president",)),
+    ("qc", ("inspector", "inspection", "quality", "qc",)),
+    ("other", ("merchandiser", "representative", "coordinator",
+               "assistant", "secretary", "clerk",)),
+)
+
+
+def detect_self_stated_role(text: str):
+    """Return (role, role_note) when the text is the sender stating their
+    own role, else None. role_note is the matching sentence, trimmed."""
+    t = (text or "").strip()
+    if not t:
+        return None
+    if not any(p.search(t) for p in _SELF_PATTERNS):
+        return None
+    low = t.lower()
+    for role, words in _ROLE_KEYWORDS:
+        for w in words:
+            if w in low:
+                # role_note: first sentence containing the role word.
+                note = t
+                for sent in _re.split(r"(?<=[.!?])\s+|\n+", t):
+                    if w in sent.lower():
+                        note = sent.strip()
+                        break
+                return role, note[:200]
+    return None
+
+
+def _is_dryrun(payload: dict) -> bool:
+    return bool((payload or {}).get("dry_run")) or os.environ.get(DRYRUN_ENV) == "1"
+
+
+def plan_contacts_actions(payload: dict) -> list:
+    """Pure planner: payload -> [(method, path, body, why), ...].
+
+    Payload blocks: chat{channel,name,kind,factory_id}, sender
+    {external_id,name,contact_id}, message{id,text}, email{from,domain,
+    signature}, existing_contacts[{id,name,channels[{kind,value}]}],
+    known_factories[{id,name,company,domains[]}]. Minimal payloads
+    ({chat_id,message_id} only) yield a single ("log-only", ...) entry.
+    """
+    p = payload or {}
+    chat = p.get("chat") or {}
+    sender = p.get("sender") or {}
+    message = p.get("message") or {}
+    actions: list = []
+
+    if not chat and set(p.keys()) <= {"chat_id", "message_id", "dry_run"}:
+        actions.append(("log-only", "contacts/minimal-payload", {},
+                        "minimal payload (chat_id+message_id, no sender "
+                        "snapshot): cannot resolve sender without a lookup "
+                        "endpoint; needs ingest enrichment (see STACK)"))
+        return actions
+
+    channel = str(chat.get("channel", "whatsapp") or "whatsapp").lower()
+    chat_name = str(chat.get("name", "") or "")
+    factory_id = str(chat.get("factory_id", "") or "")
+    sender_id = str(sender.get("external_id", "") or "")
+    sender_name = str(sender.get("name", "") or "") or sender_id
+    sender_contact = str(sender.get("contact_id", "") or "")
+    text = str(message.get("text", "") or "")
+    msg_id = str(message.get("id", "") or "")
+    existing = p.get("existing_contacts") or []
+
+    def find_by_channel(kind: str, value: str):
+        v = (value or "").strip().lower()
+        if not v:
+            return None
+        for c in existing:
+            for ch in (c.get("channels") or []):
+                if (str(ch.get("kind", "")).lower() == kind
+                        and str(ch.get("value", "")).strip().lower() == v):
+                    return c
+        return None
+
+    if channel == "email":
+        email = p.get("email") or {}
+        frm = str(email.get("from", "") or sender_id or "").strip()
+        domain = str(email.get("domain", "") or "")
+        if "@" in frm and not domain:
+            domain = frm.split("@", 1)[1].lower()
+        sig = str(email.get("signature", "") or "")
+        known = p.get("known_factories") or []
+        hit = find_by_channel("email", frm)
+        if hit:
+            actions.append(("log-only", "contacts/email-attach", {},
+                            f"email {frm} already on contact {hit.get('id')}: "
+                            "attached, nothing to create"))
+            # No return: fall through to role + merge checks below.
+        matched_factory = ""
+        if not hit and domain:
+            for f in known:
+                doms = [str(d).lower() for d in (f.get("domains") or [])]
+                blob = (str(f.get("name", "")) + " " + str(f.get("company", ""))).lower()
+                if (domain in doms or blob.strip()
+                        and (domain.split(".")[0] in blob
+                             or any(w in (sig + " " + frm).lower()
+                                    for w in blob.split() if len(w) > 3))):
+                    matched_factory = str(f.get("id", ""))
+                    break
+        if matched_factory and not hit:
+            body = {"name": sender_name or frm, "type": "factory",
+                    "factory_id": matched_factory, "role": "sales_agent",
+                    "role_source": "default",
+                    "description": f"Email {frm} matched to factory",
+                    "channels": [{"kind": "email", "value": frm}]}
+            actions.append(("POST", "/api/agent/contacts", body,
+                            f"email {frm} matched to factory {matched_factory}"))
+        elif not hit:
+            body = {"name": sender_name or frm, "type": "factory",
+                    "factory_id": "", "role": "sales_agent",
+                    "role_source": "default",
+                    "description": f"Unmatched sender {frm}: {text[:120]}",
+                    "channels": ([{"kind": "email", "value": frm}] if frm else [])}
+            actions.append(("POST", "/api/agent/contacts", body,
+                            f"email {frm or sender_name} has no factory match: "
+                            "Unmatched entry, no drafts"))
+        # Signature phone/email merge check below applies to email too.
+    else:
+        hit = (find_by_channel("whatsapp", sender_id)
+               or (next((c for c in existing
+                         if str(c.get("id")) == sender_contact), None)
+                   if sender_contact else None))
+        if hit is None and sender_id:
+            desc = f"WhatsApp {sender_id} in {chat_name}".strip()
+            body = {"name": sender_name, "type": "factory",
+                    "factory_id": factory_id, "role": "sales_agent",
+                    "role_source": "default", "description": desc,
+                    "channels": [{"kind": "whatsapp", "value": sender_id}]}
+            actions.append(("POST", "/api/agent/contacts", body,
+                            f"new sender {sender_id} in group {chat_name}: "
+                            "create factory contact (default Sales agent)"))
+        elif hit is not None:
+            actions.append(("log-only", "contacts/known-sender", {},
+                            f"sender {sender_id} already contact "
+                            f"{hit.get('id')}: no create"))
+
+    # Role self-statement: only when the speaker IS the contact (message
+    # author == sender, never a third party describing them).
+    speaker_is_subject = p.get("speaker_is_subject", True)
+    if text and speaker_is_subject:
+        role_hit = detect_self_stated_role(text)
+        has_create = any(a[0] == "POST" and a[1] == "/api/agent/contacts"
+                         for a in actions)
+        if role_hit and (sender_contact or has_create):
+            role, note = role_hit
+            if sender_contact:
+                actions.append(("PATCH",
+                                f"/api/agent/contacts/{sender_contact}",
+                                {"role": role, "role_note": note,
+                                 "role_source": "self_stated",
+                                 "role_proof_message_id": text[:500]},
+                                f"self-stated role {role} for "
+                                f"{sender_contact}: proof linked"))
+            else:
+                # Fold into the just-planned create: self-stated at birth.
+                for i, a in enumerate(actions):
+                    if a[0] == "POST" and a[1] == "/api/agent/contacts":
+                        body = dict(a[2])
+                        body["role"] = role
+                        body["role_note"] = note
+                        body["role_source"] = "self_stated"
+                        body["role_proof_message_id"] = text[:500]
+                        actions[i] = (a[0], a[1], body,
+                                      a[3] + f"; self-stated role {role} at create")
+        elif role_hit:
+            actions.append(("log-only", "contacts/role-no-target", {},
+                            "self-stated role found but sender contact "
+                            "unknown and no create planned: no change"))
+    if "speaker_is_subject" in p and not p.get("speaker_is_subject"):
+        actions.append(("log-only", "contacts/third-party", {},
+                        "third-party description of contact: role unchanged"))
+
+    # Merge: phone-in-signature or email matching another contact's channel.
+    sig_text = str((p.get("email") or {}).get("signature", "") or "")
+    phones = set(_re.findall(r"\+?\d[\d\s\-()]{6,}\d", sig_text + " " + text))
+    emails = set(m.lower() for m in _re.findall(
+        r"[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}", (sig_text + " " + text).lower()))
+    for c in existing:
+        if sender_contact and str(c.get("id")) == sender_contact:
+            continue
+        for ch in (c.get("channels") or []):
+            k, v = str(ch.get("kind", "")).lower(), str(ch.get("value", ""))
+            if ((k == "whatsapp" and v in phones)
+                    or (k == "email" and v.lower() in emails)):
+                other = sender_contact or next(
+                    (a[2].get("__new_id", "") for a in actions
+                     if a[0] == "POST"), "")
+                actions.append(("POST", "/api/agent/contacts/merge",
+                                {"keep_id": str(c.get("id")),
+                                 "merge_id": other or sender_id},
+                                f"signature match ({k}:{v}) merges into "
+                                f"{c.get('id')}; fallback is log-only since "
+                                "PATCH accepts no channels"))
+                break
+    return actions
+
+
+def _execute_contacts_actions(actions: list, dry_run: bool) -> None:
+    for method, path, body, why in actions:
+        clean = {k: v for k, v in (body or {}).items()
+                 if not k.startswith("__")}
+        if method == "log-only" or dry_run:
+            logger.info("command_center: contacts %s %s %s [dry_run=%s]",
+                        "NOTE " if method == "log-only" else "would POST",
+                        path, why, dry_run)
+            continue
+        res = _api(method, path, clean)
+        logger.info("command_center: contacts %s %s ok=%s (%s)",
+                    method, path, bool(res and res.get("contact", res)), why)
+
+
+def _run_contacts_job(job: dict) -> None:
+    payload = job.get("payload") or {}
+    dry_run = _is_dryrun(payload)
+    actions = plan_contacts_actions(payload)
+    _execute_contacts_actions(actions, dry_run)
+    logger.info("command_center: contacts job %s planned %d action(s) dry_run=%s",
+                job.get("id"), len(actions), dry_run)
+
+
 # ------------------------------------------------------------- workers ---
 
 _workers_started = False
@@ -293,6 +544,8 @@ def _run_job(job: dict) -> None:
                 "waiting_on": "none",
                 "next_step": "",
             })
+        elif job.get("type") == "contacts":
+            _run_contacts_job(job)  # deterministic, no LLM (Goal 3)
         _api("POST", f"/api/agent/jobs/{jid}/done", {})
         logger.info("command_center: job %s (%s) done", jid, job.get("type"))
     except Exception as exc:
