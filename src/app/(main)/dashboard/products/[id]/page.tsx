@@ -382,14 +382,16 @@ export default function ProductDetail({ params }: { params: Promise<{ id: string
           />
           <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
             {p.asin && <span className="font-mono text-xs">{p.asin}</span>}
-            <Badge variant="secondary">{STAGE_LABEL[p.stage] || p.stage}</Badge>
-            <input
-              type="date"
-              value={p.startDate || ""}
-              onChange={(e) => patch({ startDate: e.target.value })}
-              title="Scheduled start — activates that morning"
-              className="rounded-md border border-input bg-background px-2 py-1 text-xs"
-            />
+            <div className="flex items-center gap-1">
+              <label className="text-xs text-muted-foreground" htmlFor="start-date">Start date</label>
+              <input
+                id="start-date"
+                type="date"
+                value={p.startDate || ""}
+                onChange={(e) => patch({ startDate: e.target.value })}
+                className="rounded-md border border-input bg-background px-2 py-1 text-xs"
+              />
+            </div>
             <select
               value={(p as any).productStatus || "queue"}
               onChange={(e) => patch({ productStatus: e.target.value })}

@@ -137,6 +137,8 @@ These serve as the fallback; there is no separate default.css file. */
     font-family: var(--font-sans), system-ui, sans-serif;
   }
   html {
+    color-scheme: light dark;
+    background-color: var(--background, oklch(1 0 0));
     @apply font-sans;
   }
 }
