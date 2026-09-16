@@ -157,6 +157,15 @@ Buttons/controls (from reading `src/app/(main)/dashboard/products/[id]/page.tsx`
   `register_tool(name, toolset, schema, handler, ...)` (`plugins.py:449`);
   `register_system_prompt_section(id, content, max_chars=4000)` (`plugins.py:917`).
   No existing plugin used `pre_gateway_dispatch` — command_center is the first.
+- **Goal order rearranged by Haim (Sep 16, 2026).** Haim authorized building in
+  the order that works best instead of SPEC numeric order: (1) messages
+  visibility slice (thin read-only view of ingested chats/messages, normally
+  Goal 6 timeline) so inbound flow is visible; (2) Goal 2 remaining live proofs
+  (approved test draft sends once to CC Test; zero-LLM on empty queue);
+  (3) Goal 4 product page; (4) Goal 5 AI Spec Draft; (5) Goal 3 contacts;
+  (6) Goal 6 remainder (organizer + factory summary); (7) Goal 7 Actionables;
+  (8) Goal 8 reply drafter; (9) Goal 9 follow-ups; (10) Goal 10 samples.
+  Reason: each step is verifiable by Haim on screen before the next begins.
 - **Goal 2 runtime scoping.** Job runner handles `cc-echo` inline; contacts/
   organize/etc. stay queued until Goals 3-8 land their skills (poll claims by
   type, so nothing is lost). Outbox sender posts bubbles to the local Baileys
@@ -220,6 +229,20 @@ Buttons/controls (from reading `src/app/(main)/dashboard/products/[id]/page.tsx`
   `POST /api/activity/undo` (`{id}` → 404/400/200) is a thin wrapper over it.
   Local JSON keys use the existing camelCase convention (`specVersions`,
   `factoryProducts`, …); pg table names match SPEC §1.2 verbatim.
+  Nothing committed/pushed/deployed.
+- **Messages visibility slice (Sep 16, 2026, step 1 of reordered goals).**
+  `GET /api/messages` (`chat_id?`, `limit` default 50/max 200, newest-first
+  `[{id, chat_id, chat_name, sender, direction, text, translation, sent_at}]`)
+  reads the agent store read-only; sender resolves `contact_id` via contacts.
+  No token gate: `proxy.ts` is still disabled (`proxy.disabled.ts`) and the
+  other dashboard APIs (`/api/contacts`, `/api/actionables`) are likewise
+  open, so gating just this one would break the page while adding no real
+  protection — revisit when dashboard auth is enforced globally. Activity page
+  (was placeholder) now hosts a thin client `MessagesView`: chat dropdown,
+  10s polling, in/out bubbles with translation under the original. View at
+  `/dashboard/activity`. Test `tests/unit/agent-messages.test.ts` tags its
+  rows (shared file-backed store leaks between test files) and cleans up.
+  `npm run build` green; `test:unit` 8 files/119 tests green; typecheck green.
   Nothing committed/pushed/deployed.
 
 ## Sources checked
