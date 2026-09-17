@@ -17,6 +17,7 @@ import {
   linkConversationToProduct,
   listUVersions,
   suggestChangesOnDraft,
+  suggestChangesOnQuestion,
 } from "@/lib/cc/actionables-store";
 import { __resetAgentDb, dbById, dbFind, dbInsert } from "@/lib/cc/agent-store";
 import { resolveFeeMessage } from "@/lib/cc/decision-bridge";
@@ -330,5 +331,29 @@ describe("actionables-store: fee question (no draft, still one card, real send o
     const rows = await dbFind("outbox", (x: any) => x.draft_version_id === `fee:${q.id}`);
     expect(rows).toHaveLength(1);
     expect(rows[0].bubbles).toEqual([resolveFeeMessage(q.body as any)]);
+  });
+
+  it("suggest changes on a fee stays open in the same card (found via manual browser testing)", async () => {
+    const fp = nid("fp");
+    const q: Question = {
+      id: nid("q"),
+      factoryProductId: fp,
+      kind: "fee",
+      body: { amount: "200", currency: "RMB", covers: "3 samples", factory: "Fee Factory" },
+      status: "open",
+      answer: null,
+      importance: "high",
+      createdAt: Date.now(),
+    };
+    await saveQuestion(q);
+
+    const result = await suggestChangesOnQuestion(q.id, "Ask for a formal invoice first");
+    expect(result.ok).toBe(true);
+
+    const payload = (await (await decisionsGet()).json()) as any;
+    const card = payload.cards.find((c: any) => c.conversationKey === fp);
+    expect(card).toBeTruthy(); // still there — not closed out
+    expect(card.decisionNeeded).toContain("Ask for a formal invoice first");
+    expect(card.canApprove).toBe(true); // still approvable afterwards
   });
 });

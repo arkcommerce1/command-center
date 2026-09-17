@@ -94,9 +94,10 @@ export async function GET() {
       b.questions.find((q) => q.kind === "question");
 
     let decisionNeeded: string | null = null;
-    if (decisionQuestion?.kind === "fee")
+    if (decisionQuestion?.kind === "fee") {
       decisionNeeded = `Sample fee — ${resolveFeeMessage(decisionQuestion.body || {})}`;
-    else if (decisionQuestion?.kind === "guardrail_block")
+      if (decisionQuestion.body?.note) decisionNeeded += ` (your note: ${decisionQuestion.body.note})`;
+    } else if (decisionQuestion?.kind === "guardrail_block")
       decisionNeeded = `Donna's draft touched a blocked topic (${decisionQuestion.body?.reason || "blocked"}) — tell her what to say instead.`;
     else if (decisionQuestion?.kind === "send_uncertain")
       decisionNeeded = "Not sure the last message to this factory actually sent.";

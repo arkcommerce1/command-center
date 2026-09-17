@@ -444,7 +444,17 @@ export async function suggestChangesOnQuestion(id: string, instruction: string):
   if (!q) return { ok: false, httpStatus: 404, message: "Card not found." };
   if (q.status !== "open") return { ok: false, httpStatus: 422, message: `Already ${q.status}.` };
   if (q.kind === "fee") {
-    await setQuestionState(q, "answered", { resolution: "changes", note: instruction.slice(0, 2000) });
+    // Stays open — "suggest changes" here is a note for Haim's own future
+    // reference, not a resolution, so the same card keeps waiting on him.
+    if (q.source === "agent") {
+      await dbUpdate("questions", q.id, { body: { ...(q.body ?? {}), note: instruction.slice(0, 2000) } });
+    } else {
+      const full = await getDashQuestion(q.id);
+      if (full) {
+        full.body = { ...((full.body as object) ?? {}), note: instruction.slice(0, 2000) } as unknown;
+        await saveDashQuestion(full);
+      }
+    }
     return { ok: true };
   }
   // question / guardrail_block: Haim's instruction becomes a fresh drafted reply.
