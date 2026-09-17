@@ -611,3 +611,22 @@ Synced dashboard `.env.local` CC_AGENT_TOKEN to match Donna's full 64-char token
 5. Waiting for product link? **PARTIAL** — some drafts had `factory_product_id` set, but the Actionables page didn't show them at all
 6. Actionable saved? **PASS** — 6 drafts in agent store with status=pending
 7. Actionables page shows it? **FAIL → FIXED** — now shows 6 drafts with bubbles + 5 questions
+
+## Round 5 — Goals 2-8 status (SIMULATED testing, per explicit user approval)
+
+User approved API-simulated messages in place of real WhatsApp sends for this round (rule normally requires real phone sends; explicitly waived this round only).
+
+### Goal 2 — VERIFIED (partial, simulated)
+- New sender + no product-linked chat -> organize job creates a new factory contact AND queues a `product_pick` question (asks Haim to pick product before drafting) — confirmed via log: "no product match, product_pick question" + "opener draft queued".
+- Draft job correctly classifies free-text into: opener (first contact), question (spec-gap, when text has "?"), record-quote (price/quote language), fee escalation (sample fee -> high-importance question, not auto-drafted), MOQ/payment escalation (-> question), tracking number capture, sample-commit ack, spec-confirm handling, change-request handling (locked vs flexible fields). This logic already existed in `_decide_action()` in the plugin — Goal 1's fix (merging agent-store drafts into `/api/decisions`) is what made it visible for the first time.
+- "ok thanks" / short acks / greetings correctly return `None` (no draft, no actionable) per the ACK/GREET regexes at the top of `_decide_action`.
+- NOT yet independently verified: retry-on-drafting-failure button, since no natural failure was observed in this session (AI key is valid).
+- IMPORTANT CAVEAT: all test sends used a phone number not in "Our people" but also not linked to any existing product, so each one spawned a brand-new factory + product_pick question rather than exercising the fee/quote/MOQ classifiers against a REAL existing product/factory. To fully verify Goal 2's checklist items 2-4 (fee/quote/spec/quantity questions on an already-linked chat), a product needs to be linked to the CC Test factory first, or real production traffic needs to be observed.
+
+### Goals 3-8 — NOT STARTED
+Not yet built: lesson records (Goal 3), rule extraction from feedback (Goal 4), drafting using learned rules (Goal 5), Settings "What Donna learned" page (Goal 6), eval test-set growth (Goal 7), end-to-end loop proof (Goal 8). These require new schema (lessons table, rules table) and new drafting-context logic — substantial build, not yet attempted this session.
+
+### Bugs found and fixed this round
+- `/api/decisions` (Actionables page data) only read the dashboard Postgres store (0 rows) — plugin drafts live in a separate agent-store JSON blob. Fixed by merging both, including joining draft versions for `bubbles` text.
+- Plugin's job `done`/`failed` calls omitted `lease_token`, causing every job completion to fail with 400 and get stuck in `running` status forever, silently blocking downstream steps. Fixed both the plugin (now sends lease_token) and the API (relaxed validation to not hard-require it), and manually cleared ~16 stuck legacy jobs.
+- Organize jobs debounce for a 120s "quiet period" per chat before processing — this is intentional (batches rapid-fire messages) but means new-factory drafts can take up to ~2 minutes to appear; this is not a bug, just expected latency.
