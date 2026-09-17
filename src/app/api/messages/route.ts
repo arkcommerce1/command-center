@@ -32,8 +32,8 @@ export async function GET(req: NextRequest) {
       chat_name: chatById.get(m.chat_id)?.name || chatById.get(m.chat_id)?.external_id || "",
       sender: contactById.get(m.contact_id)?.name
         || memberByChatAndContact.get(`${m.chat_id}:${m.contact_id}`)
-        || m.contact_id
         || m.sender_name
+        || m.contact_id
         || "",
       direction: m.direction || "in",
       text: m.text || "",

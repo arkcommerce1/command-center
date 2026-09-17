@@ -62,15 +62,15 @@ export async function POST(req: NextRequest) {
     );
     if (dup.length === 0) await dbInsert("chatMembers", { chat_id: chat.id, ...m });
   }
+  const sender = b.members.find((m) => m.external_id === b.message.contact_id) || b.members[0] || {};
   const message = await dbInsert("messages", {
     external_id: b.external_id,
     chat_id: chat.id,
     ...b.message,
+    sender_external_id: sender.external_id || "",
+    sender_name: sender.name || "",
     sent_at: b.message.sent_at || Date.now(),
   });
-
-  // Queue jobs with RICH payloads so processors can actually work.
-  const sender = b.members.find((m) => m.external_id === b.message.contact_id) || b.members[0] || {};
   const jobPayload = {
     chat: {
       id: chat.id,
