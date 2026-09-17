@@ -675,6 +675,40 @@ root cause** than Round 5 fixed, and rebuilt the page to match CLAUDE.md's
 one-card spec exactly. No code was deployed — see "Not done this round"
 below; this cloud session has no SSH/VPS access.
 
+### Manually tested in a real browser (not just unit tests)
+
+Per "fake data does not count as proof" and Haim asking to actually test it:
+ran `next dev` locally (no `DATABASE_URL` here, so file-backed `data/*.json`
+stores — same code path as production, different backend), seeded realistic
+agent-store rows shaped exactly like what Donna's plugin writes (an unlinked
+opener draft + a fee question, both with real inbound messages attached),
+and drove it with a headless-Chromium Playwright script. All local-only
+scratch files, deleted after; nothing committed.
+
+Confirmed working, live, in the browser: the product dropdown for an
+unlinked chat (and it sticks — the next poll shows the product linked);
+Approve (outbox row appears, card disappears); Disapprove (old version
+closes, a fresh AI-written draft appears in the *same* card, old one
+collapses under "Show previous drafts (1)"); Ignore (card closes, empty
+state shows "Nothing needs you right now."); zero console/hydration errors
+from any of this. Screenshots match CLAUDE.md's card spec closely.
+
+**Found and fixed a real bug this way that no unit test had caught:**
+clicking "Suggest changes" on a sample-fee card marked the question
+"answered" and made the card vanish — the opposite of "Donna rewrites in
+the same card." Fixed: fee suggest-changes now stays open and appends
+Haim's note to the card instead of closing it. Added a regression test.
+
+**Also noticed, not fixed (pre-existing, predates this round):** the
+dashboard home page throws a React hydration-mismatch console error on
+every load — a `<Skeleton>` (renders a `<div>`) is nested inside a `<p>`
+in the 4 stat cards (`src/app/(main)/dashboard/default/page.tsx`), which
+is invalid HTML. Confirmed via `git show HEAD~2` that this line predates
+this session. Likely related to CLAUDE.md's "Pages flash white when
+navigating" known problem. Small, safe, one-line-per-card fix (`<p>` →
+`<div>` around the Skeleton) whenever someone picks up dashboard-home
+polish; left alone here to stay scoped to Actionables.
+
 ### Root cause: Approve/Suggest changes/Disapprove were 404ing on every real draft
 
 Round 5 fixed `/api/decisions` so agent-store drafts (what Donna's plugin
