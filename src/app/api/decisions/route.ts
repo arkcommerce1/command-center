@@ -73,6 +73,12 @@ export async function GET() {
 
   // Factory lookup by id (for factory name)
   const agentFactoryById = new Map(agentFactories.map((f: any) => [f.id, f]));
+  // Chat lookup by chat_id (for factory name fallback)
+  const agentChats: any[] = [];
+  try {
+    agentChats = await dbFind("chats", () => true);
+  } catch { /* agent store may not be initialized */ }
+  const chatByExtId = new Map(agentChats.map((c: any) => [c.external_id, c]));
 
   // Dashboard-store name resolution
   const nameFor = (factoryProductId: string | null) => {
@@ -80,8 +86,21 @@ export async function GET() {
     const product = link ? productById.get(link.productId) : null;
     const factory = link ? factoryById.get(link.companyId) : null;
     const agentFactory = (factoryProductId && agentFactoryById.get(factoryProductId)) || null;
+    // If the factory name is a JID (all digits), try to get the chat name
+    let factoryName = factory?.name || agentFactory?.name || null;
+    if (factoryName && /^\d+$/.test(factoryName)) {
+      // Look up the chat name
+      for (const c of agentChats) {
+        if (c.id === agentFactory?.chat_id || c.external_id?.includes(factoryName)) {
+          if (c.name && !/^\d+$/.test(c.name)) {
+            factoryName = c.name;
+            break;
+          }
+        }
+      }
+    }
     return {
-      factoryName: factory?.name || agentFactory?.name || null,
+      factoryName,
       productName: product?.name || null,
     };
   };
