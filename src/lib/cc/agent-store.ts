@@ -33,6 +33,9 @@ export interface AgentDb {
   notifications: any[];
   outbox: any[];
   activity: any[];
+  lessons: any[]; // Goal 3: saved on every approve/suggest/disapprove
+  learnedRules: any[]; // Goal 4: rules extracted from lessons
+  draftExamples: any[]; // Goal 5: past examples for draft context
 }
 
 const EMPTY: AgentDb = {
@@ -57,6 +60,9 @@ const EMPTY: AgentDb = {
   notifications: [],
   outbox: [],
   activity: [],
+  lessons: [],
+  learnedRules: [],
+  draftExamples: [],
 };
 
 // In-memory cache so rapid successive calls (and tests) share state.

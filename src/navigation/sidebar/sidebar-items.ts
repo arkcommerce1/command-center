@@ -105,8 +105,19 @@ export const sidebarItems: NavGroup[] = [
       {
         id: "settings",
         title: "Settings",
-        url: "/dashboard/settings/playbook",
         icon: Settings,
+        subItems: [
+          {
+            id: "settings-playbook",
+            title: "Playbook",
+            url: "/dashboard/settings/playbook",
+          },
+          {
+            id: "settings-learning",
+            title: "What Donna learned",
+            url: "/dashboard/settings/learning",
+          },
+        ],
       },
     ],
   },
