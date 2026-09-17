@@ -30,7 +30,6 @@ async function fetchImageBytes(url: string): Promise<{ bytes: Uint8Array; kind: 
     if (ct.includes("webp")) return null;
     return { bytes: buf, kind: "jpg" };
   } catch {
-    // Fallback: try curl for image download
     try {
       const { execSync } = await import("child_process");
       const tmpPath = `/tmp/spec-img-${Date.now()}.jpg`;
@@ -46,8 +45,19 @@ async function fetchImageBytes(url: string): Promise<{ bytes: Uint8Array; kind: 
   }
 }
 
+// Check if text contains CJK characters
+function hasCJK(text: string): boolean {
+  return /[\u4e00-\u9fff\u3400-\u4dbf\uf900-\ufaff\u{20000}-\u{2a6df}\u{2a700}-\u{2b73f}\u{2b740}-\u{2b81f}\u{2b820}-\u{2ceaf}]/u.test(text);
+}
+
+// Pick the right font for the text: CJK font for Chinese, Latin font for everything else
+function pickFont(text: string, latinFont: any, cjkFont: any, boldLatin: any, boldCjkFont: any, bold: boolean): any {
+  if (hasCJK(text) && cjkFont) return bold ? boldCjkFont : cjkFont;
+  return bold ? boldLatin : latinFont;
+}
+
+// Wrap text into lines that fit within maxWidth, using the correct font per segment
 function wrapText(text: string, font: any, size: number, maxWidth: number): string[] {
-  // Handle CJK characters: split on any character that overflows
   const lines: string[] = [];
   let cur = "";
   for (const ch of text) {
@@ -81,25 +91,41 @@ export async function generateSpecPdf(product: Product, options: SpecPdfOptions 
   const doc = await PDFDocument.create();
   doc.registerFontkit(fontkit);
 
-  // Load CJK fonts (fallback to Helvetica if not available)
-  let font: any;
-  let bold: any;
+  // Latin fonts (always available — built into pdf-lib)
+  const latinFont = await doc.embedFont(StandardFonts.Helvetica);
+  const latinBold = await doc.embedFont(StandardFonts.HelveticaBold);
+
+  // CJK fonts (loaded from disk if available)
+  let cjkFont: any = null;
+  let cjkBold: any = null;
   const regPath = "/tmp/NotoSansSC-Regular.ttf";
   const boldPath = "/tmp/NotoSansSC-Bold.ttf";
-
   try {
     if (existsSync(regPath) && existsSync(boldPath)) {
-      const regBytes = await readFile(regPath);
-      const boldBytes = await readFile(boldPath);
-      font = await doc.embedFont(regBytes);
-      bold = await doc.embedFont(boldBytes);
-    } else {
-      font = await doc.embedFont(StandardFonts.Helvetica);
-      bold = await doc.embedFont(StandardFonts.HelveticaBold);
+      cjkFont = await doc.embedFont(await readFile(regPath));
+      cjkBold = await doc.embedFont(await readFile(boldPath));
     }
   } catch {
-    font = await doc.embedFont(StandardFonts.Helvetica);
-    bold = await doc.embedFont(StandardFonts.HelveticaBold);
+    // CJK not available — Latin only
+  }
+
+  // Helper: draw text using the right font for the content
+  function drawText(text: string, opts: { x: number; y: number; size: number; bold?: boolean; color?: any; maxWidth?: number }) {
+    const f = pickFont(text, latinFont, cjkFont, latinBold, cjkBold, opts.bold || false);
+    const color = opts.color || rgb(0.1, 0.1, 0.1);
+    if (opts.maxWidth) {
+      const lines = wrapText(text, f, opts.size, opts.maxWidth);
+      let ty = opts.y;
+      for (const line of lines) {
+        // For mixed CJK/Latin lines, still use the CJK font if any CJK present,
+        // otherwise Latin. This is per-line since the whole line is one drawText call.
+        const lineFont = pickFont(line, latinFont, cjkFont, latinBold, cjkBold, opts.bold || false);
+        page.drawText(line, { x: opts.x, y: ty, size: opts.size, font: lineFont, color });
+        ty -= opts.size + 2;
+      }
+    } else {
+      page.drawText(text, { x: opts.x, y: opts.y, size: opts.size, font: f, color });
+    }
   }
 
   // Get spec data
@@ -111,8 +137,6 @@ export async function generateSpecPdf(product: Product, options: SpecPdfOptions 
     .filter((f: any) => f.value && f.value !== "Needs input");
   const skus: any[] = (product as any).skus || [];
   const masterSku = (product as any).masterSku || "—";
-  const specVersionNum: number = (product as any).specVersion || 0;
-  const notes = product.spec?.notes || "";
 
   let page = doc.addPage([PAGE_W, PAGE_H]);
   let y = PAGE_H - MARGIN;
@@ -131,31 +155,27 @@ export async function generateSpecPdf(product: Product, options: SpecPdfOptions 
       page.drawImage(embedded, { x: MARGIN, y: y - h, width: w, height: h });
       imgHeight = h + 10;
     } catch {
-      // placeholder
       page.drawRectangle({ x: MARGIN, y: y - 80, width: 80, height: 80, borderColor: rgb(0.7, 0.7, 0.7), borderWidth: 1 });
-      page.drawText("No image", { x: MARGIN + 10, y: y - 50, size: 9, font, color: rgb(0.6, 0.6, 0.6) });
+      drawText("No image", { x: MARGIN + 10, y: y - 50, size: 9, color: rgb(0.6, 0.6, 0.6) });
       imgHeight = 90;
     }
   } else {
     page.drawRectangle({ x: MARGIN, y: y - 80, width: 80, height: 80, borderColor: rgb(0.7, 0.7, 0.7), borderWidth: 1 });
-    page.drawText("No image", { x: MARGIN + 10, y: y - 50, size: 9, font, color: rgb(0.6, 0.6, 0.6) });
+    drawText("No image", { x: MARGIN + 10, y: y - 50, size: 9, color: rgb(0.6, 0.6, 0.6) });
     imgHeight = 90;
   }
 
-  // Product name (right of image)
+  // Product name (right of image) — no version line (Goal 7)
   const nameX = MARGIN + 110;
   const nameMaxW = PAGE_W - MARGIN - nameX;
-  const nameLines = wrapText(product.name || "Untitled product", bold, 20, nameMaxW);
+  const nameLines = wrapText(product.name || "Untitled product", latinBold, 20, nameMaxW);
   for (const line of nameLines.slice(0, 2)) {
-    page.drawText(line, { x: nameX, y, size: 20, font: bold, color: rgb(0.05, 0.05, 0.05) });
+    const f = pickFont(line, latinFont, cjkFont, latinBold, cjkBold, true);
+    page.drawText(line, { x: nameX, y, size: 20, font: f, color: rgb(0.05, 0.05, 0.05) });
     y -= 24;
   }
-  // Master SKU
-  page.drawText(`Master SKU: ${masterSku}`, { x: nameX, y, size: 11, font: bold, color: rgb(0.3, 0.3, 0.3) });
-  y -= 16;
-  // Version + date
-  const approvedDate = latestApproved ? new Date(latestApproved.createdAt).toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" }) : "—";
-  page.drawText(`Spec v${specVersionNum} · approved ${approvedDate}`, { x: nameX, y, size: 9, font, color: rgb(0.5, 0.5, 0.5) });
+  // Master SKU (no version/date line — removed per Goal 7)
+  page.drawText(`Master SKU: ${masterSku}`, { x: nameX, y, size: 11, font: latinBold, color: rgb(0.3, 0.3, 0.3) });
   y -= 20;
 
   // Move y below the image if it's lower
@@ -172,55 +192,58 @@ export async function generateSpecPdf(product: Product, options: SpecPdfOptions 
 
   // ---- SPEC FIELDS: two-column table ----
   if (specFields.length > 0) {
-    page.drawText("Specification", { x: MARGIN, y, size: 13, font: bold, color: rgb(0.2, 0.2, 0.2) });
+    drawText("Specification", { x: MARGIN, y, size: 13, bold: true, color: rgb(0.2, 0.2, 0.2) });
     y -= 18;
 
     const labelColW = 160;
     const valueColW = CONTENT_W - labelColW;
-    const rowH = 18;
 
     for (const f of specFields) {
-      // Check page break
-      if (y < MARGIN + rowH + 20) {
-        page = doc.addPage([PAGE_W, PAGE_H]);
-        pageNum++;
-        y = PAGE_H - MARGIN;
-        page.drawText("Specification (continued)", { x: MARGIN, y, size: 11, font: bold, color: rgb(0.2, 0.2, 0.2) });
-        y -= 20;
-      }
-
       const label = f.label || "—";
       const value = f.value || "—";
       const tag = f.tag || "locked";
 
-      // Label (bold, left column, wraps)
-      const labelLines = wrapText(label, bold, 9.5, labelColW - 8);
-      const valueLines = wrapText(value, font, 9.5, valueColW - 8);
+      // Use Latin font for width calculations (most fields are English)
+      const labelFont = pickFont(label, latinFont, cjkFont, latinBold, cjkBold, true);
+      const valueFont = pickFont(value, latinFont, cjkFont, cjkFont, cjkBold, false);
+      const labelLines = wrapText(label, labelFont, 9.5, labelColW - 8);
+      const valueLines = wrapText(value, valueFont, 9.5, valueColW - 8);
       const maxLines = Math.max(labelLines.length, valueLines.length);
       const thisRowH = maxLines * 12 + 6;
 
-      // Row background (alternating)
+      // Check page break
+      if (y < MARGIN + thisRowH + 20) {
+        page = doc.addPage([PAGE_W, PAGE_H]);
+        pageNum++;
+        y = PAGE_H - MARGIN;
+        drawText("Specification (continued)", { x: MARGIN, y, size: 11, bold: true, color: rgb(0.2, 0.2, 0.2) });
+        y -= 20;
+      }
+
+      // Row background (alternating) — drawn BEFORE text, aligned to the row
       if (specFields.indexOf(f) % 2 === 0) {
         page.drawRectangle({ x: MARGIN, y: y - thisRowH, width: CONTENT_W, height: thisRowH, color: rgb(0.96, 0.96, 0.96) });
       }
 
-      // Label
+      // Label (bold, left column)
       let ly = y - 4;
       for (const ll of labelLines) {
-        page.drawText(ll, { x: MARGIN + 4, y: ly, size: 9.5, font: bold, color: rgb(0.25, 0.25, 0.25) });
+        const lf = pickFont(ll, latinFont, cjkFont, latinBold, cjkBold, true);
+        page.drawText(ll, { x: MARGIN + 4, y: ly, size: 9.5, font: lf, color: rgb(0.25, 0.25, 0.25) });
         ly -= 12;
       }
 
-      // Value
+      // Value (right column)
       let vy = y - 4;
       for (const vl of valueLines) {
-        page.drawText(vl, { x: MARGIN + labelColW + 4, y: vy, size: 9.5, font, color: rgb(0.1, 0.1, 0.1) });
+        const vf = pickFont(vl, latinFont, cjkFont, latinBold, cjkBold, false);
+        page.drawText(vl, { x: MARGIN + labelColW + 4, y: vy, size: 9.5, font: vf, color: rgb(0.1, 0.1, 0.1) });
         vy -= 12;
       }
 
-      // Tag badge (small, right) — only show for non-locked tags
+      // Tag badge (only for non-locked)
       if (tag && tag !== "locked") {
-        page.drawText(`[${tag}]`, { x: PAGE_W - MARGIN - 40, y: y - 4, size: 7, font, color: rgb(0.5, 0.5, 0.5) });
+        page.drawText(`[${tag}]`, { x: PAGE_W - MARGIN - 40, y: y - 4, size: 7, font: latinFont, color: rgb(0.5, 0.5, 0.5) });
       }
 
       // Row separator
@@ -238,14 +261,13 @@ export async function generateSpecPdf(product: Product, options: SpecPdfOptions 
 
   // ---- SKU BREAKDOWN: real table ----
   if (skus.length > 0) {
-    // Check page break
     if (y < MARGIN + 60) {
       page = doc.addPage([PAGE_W, PAGE_H]);
       pageNum++;
       y = PAGE_H - MARGIN;
     }
 
-    page.drawText("SKU Breakdown", { x: MARGIN, y, size: 13, font: bold, color: rgb(0.2, 0.2, 0.2) });
+    drawText("SKU Breakdown", { x: MARGIN, y, size: 13, bold: true, color: rgb(0.2, 0.2, 0.2) });
     y -= 18;
 
     const hasOrderCol = includeOrderQty;
@@ -258,30 +280,26 @@ export async function generateSpecPdf(product: Product, options: SpecPdfOptions 
     for (let i = 0; i < skus.length; i++) {
       const r = skus[i];
 
-      // Page break: check if we need a new page (but don't cut a row)
+      // Page break
       if (y < MARGIN + rowH + 20) {
-        // Add footer to current page
-        drawFooter(page, pageNum, doc.getPageCount());
         page = doc.addPage([PAGE_W, PAGE_H]);
         pageNum++;
         y = PAGE_H - MARGIN;
-        // Repeat table header
-        page.drawText("SKU Breakdown (continued)", { x: MARGIN, y, size: 11, font: bold, color: rgb(0.2, 0.2, 0.2) });
+        drawText("SKU Breakdown (continued)", { x: MARGIN, y, size: 11, bold: true, color: rgb(0.2, 0.2, 0.2) });
         y -= 18;
-        // Column headers
-        drawTableHeader(page, cols, colWs, MARGIN, y, bold, font);
+        drawTableHeader(page, cols, colWs, MARGIN, y, latinBold);
         y -= rowH;
       }
 
       // First row: draw header
       if (i === 0) {
-        drawTableHeader(page, cols, colWs, MARGIN, y, bold, font);
+        drawTableHeader(page, cols, colWs, MARGIN, y, latinBold);
         y -= rowH;
       }
 
-      // Alternating row background
+      // Alternating row background — aligned to the row
       if (i % 2 === 0) {
-        page.drawRectangle({ x: MARGIN, y: y - rowH + 2, width: CONTENT_W, height: rowH - 2, color: rgb(0.96, 0.96, 0.96) });
+        page.drawRectangle({ x: MARGIN, y: y - rowH, width: CONTENT_W, height: rowH, color: rgb(0.96, 0.96, 0.96) });
       }
 
       // Cell values
@@ -290,10 +308,13 @@ export async function generateSpecPdf(product: Product, options: SpecPdfOptions 
         : [r.sku || "—", r.size || "—", r.pack || "—"];
 
       vals.forEach((v, ci) => {
-        const valLines = wrapText(String(v), font, 9, colWs[ci] - 8);
+        const valStr = String(v);
+        const vf = pickFont(valStr, latinFont, cjkFont, latinBold, cjkBold, false);
+        const valLines = wrapText(valStr, vf, 9, colWs[ci] - 8);
         let vy2 = y - 14;
         for (const vl of valLines.slice(0, 2)) {
-          page.drawText(vl, { x: MARGIN + colWs.slice(0, ci).reduce((a, b) => a + b, 0) + 4, y: vy2, size: 9, font, color: rgb(0.1, 0.1, 0.1) });
+          const lineFont = pickFont(vl, latinFont, cjkFont, latinBold, cjkBold, false);
+          page.drawText(vl, { x: MARGIN + colWs.slice(0, ci).reduce((a, b) => a + b, 0) + 4, y: vy2, size: 9, font: lineFont, color: rgb(0.1, 0.1, 0.1) });
           vy2 -= 11;
         }
       });
@@ -311,39 +332,40 @@ export async function generateSpecPdf(product: Product, options: SpecPdfOptions 
   }
 
   // ---- NOTES ----
-  if (notes) {
+  if (product.spec?.notes) {
+    const notes = product.spec.notes;
     if (y < MARGIN + 40) {
       page = doc.addPage([PAGE_W, PAGE_H]);
       pageNum++;
       y = PAGE_H - MARGIN;
     }
-    page.drawText("Notes", { x: MARGIN, y, size: 13, font: bold, color: rgb(0.2, 0.2, 0.2) });
+    drawText("Notes", { x: MARGIN, y, size: 13, bold: true, color: rgb(0.2, 0.2, 0.2) });
     y -= 18;
-    const noteLines = wrapText(notes, font, 10, CONTENT_W);
+    const notesFont = pickFont(notes, latinFont, cjkFont, latinBold, cjkBold, false);
+    const noteLines = wrapText(notes, notesFont, 10, CONTENT_W);
     for (const line of noteLines) {
       if (y < MARGIN + 20) {
-        drawFooter(page, pageNum, doc.getPageCount());
         page = doc.addPage([PAGE_W, PAGE_H]);
         pageNum++;
         y = PAGE_H - MARGIN;
       }
-      page.drawText(line, { x: MARGIN, y, size: 10, font, color: rgb(0.1, 0.1, 0.1) });
+      const lineFont = pickFont(line, latinFont, cjkFont, latinBold, cjkBold, false);
+      page.drawText(line, { x: MARGIN, y, size: 10, font: lineFont, color: rgb(0.1, 0.1, 0.1) });
       y -= 14;
     }
   }
 
-  // ---- FOOTER on every page ----
+  // ---- FOOTER on every page — page number only (Goal 7: no version) ----
   const totalPages = doc.getPageCount();
-  for (let i = 0; i < doc.getPageCount(); i++) {
+  for (let i = 0; i < totalPages; i++) {
     const pg = doc.getPage(i);
-    drawFooterOnPage(pg, i + 1, totalPages, font, masterSku, specVersionNum);
+    pg.drawText(`Page ${i + 1} of ${totalPages}`, { x: MARGIN, y: 24, size: 7, font: latinFont, color: rgb(0.6, 0.6, 0.6) });
   }
 
   return await doc.save();
 }
 
-function drawTableHeader(page: any, cols: any[], colWs: number[], margin: number, y: number, bold: any, font: any) {
-  // Header background
+function drawTableHeader(page: any, cols: any[], colWs: number[], margin: number, y: number, bold: any) {
   page.drawRectangle({ x: margin, y: y - 18, width: colWs.reduce((a, b) => a + b, 0), height: 18, color: rgb(0.9, 0.9, 0.9) });
   cols.forEach((c, i) => {
     const x = margin + colWs.slice(0, i).reduce((a, b) => a + b, 0) + 4;
@@ -354,15 +376,4 @@ function drawTableHeader(page: any, cols: any[], colWs: number[], margin: number
     end: { x: margin + colWs.reduce((a, b) => a + b, 0), y: y - 18 },
     thickness: 0.5, color: rgb(0.7, 0.7, 0.7),
   });
-}
-
-function drawFooter(page: any, pageNum: number, totalPages: number) {
-  drawFooterOnPage(page, pageNum, totalPages, null, "", 0);
-}
-
-function drawFooterOnPage(page: any, pageNum: number, totalPages: number, font: any, sku: string, version: number) {
-  if (!font) return;
-  const y = 24;
-  const text = `Spec v${version} · ${sku} · Page ${pageNum} of ${totalPages}`;
-  page.drawText(text, { x: MARGIN, y, size: 7, font, color: rgb(0.6, 0.6, 0.6) });
 }
