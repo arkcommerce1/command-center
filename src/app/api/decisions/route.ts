@@ -1,24 +1,21 @@
 import { NextResponse } from "next/server";
 export const dynamic = "force-dynamic";
 import { dbFind } from "@/lib/cc/agent-store";
-import { resolveFeeMessage } from "@/lib/cc/decision-bridge";
 import {
   listDrafts,
   listDraftVersions,
   listFactories,
   listFactoryProductLinks,
   listProducts,
-  listQuestions,
 } from "@/lib/cc/store";
 
-// GET /api/decisions — the Actionables page payload: decisions only.
-// Pending drafts (messages to approve) + open questions, High importance
-// first then oldest. Merges agent-store drafts (created by the plugin) with
-// dashboard-store drafts.
+// GET /api/decisions — Actionables page payload.
+// Goal 2 redesign: ONLY message cards (pending drafts). No question cards,
+// no product_pick cards, no fee cards. Only the newest version shows.
+// Each card includes: sender name, company, time, product, "They said", "Donna will reply".
 export async function GET() {
-  const [dashboardDrafts, questions, products, links] = await Promise.all([
+  const [dashboardDrafts, products, links] = await Promise.all([
     listDrafts().catch(() => []),
-    listQuestions().catch(() => []),
     listProducts().catch(() => []),
     listFactoryProductLinks().catch(() => []),
   ]);
@@ -27,24 +24,29 @@ export async function GET() {
   const linkById = new Map(links.map((l: any) => [l.id, l]));
   const factoryById = new Map(factories.map((f: any) => [f.id, f]));
 
-  // Agent-store drafts (created by the plugin) — these have bubbles in draftVersions
+  // Agent-store data
   let agentDrafts: any[] = [];
   let agentVersions: any[] = [];
   let agentMessages: any[] = [];
-  let agentQuestions: any[] = [];
+  let agentContacts: any[] = [];
+  let agentChatMembers: any[] = [];
+  let agentFactories: any[] = [];
   try {
     agentDrafts = await dbFind("drafts", (d: any) => d.status === "pending");
     agentVersions = await dbFind("draftVersions", () => true);
-    agentMessages = await dbFind("messages", () => true);
-    agentQuestions = await dbFind("questions", (q: any) => q.status === "open");
+    agentMessages = await dbFind("messages", (m: any) => m.direction === "in");
+    agentContacts = await dbFind("contacts", () => true);
+    agentChatMembers = await dbFind("chatMembers", () => true);
+    agentFactories = await dbFind("factories", () => true);
   } catch { /* agent store may not be initialized */ }
 
-  // Build version lookup for agent drafts
-  const agentVersionByDraft = new Map<string, any[]>();
+  // Build version lookup: only the LATEST version per draft
+  const latestVersionByDraft = new Map<string, any>();
   for (const v of agentVersions) {
-    const list = agentVersionByDraft.get(v.draft_id) || [];
-    list.push(v);
-    agentVersionByDraft.set(v.draft_id, list);
+    const existing = latestVersionByDraft.get(v.draft_id);
+    if (!existing || (v.version || 0) > (existing.version || 0)) {
+      latestVersionByDraft.set(v.draft_id, v);
+    }
   }
 
   // Last inbound message by factory_product_id
@@ -55,7 +57,7 @@ export async function GET() {
     if (!cur || Number(m.sent_at) > Number(cur.sent_at)) lastInboundByFp.set(m.factory_product_id, m);
   }
 
-  // Also check last inbound by chat_id (some drafts use chat_id not fp)
+  // Also by chat_id
   const lastInboundByChat = new Map<string, any>();
   for (const m of agentMessages) {
     if (m.direction !== "in" || !m.chat_id) continue;
@@ -63,130 +65,110 @@ export async function GET() {
     if (!cur || Number(m.sent_at) > Number(cur.sent_at)) lastInboundByChat.set(m.chat_id, m);
   }
 
-  const nameFor = (factoryProductId: string | null, chatId: string | null = null) => {
+  // Contact lookup by factory_product_id (sender name + company)
+  const contactByFp = new Map<string, any>();
+  for (const c of agentContacts) {
+    if (c.factory_product_id) contactByFp.set(c.factory_product_id, c);
+  }
+
+  // Factory lookup by id (for factory name)
+  const agentFactoryById = new Map(agentFactories.map((f: any) => [f.id, f]));
+
+  // Dashboard-store name resolution
+  const nameFor = (factoryProductId: string | null) => {
     const link: any = (factoryProductId && linkById.get(factoryProductId)) || null;
     const product = link ? productById.get(link.productId) : null;
     const factory = link ? factoryById.get(link.companyId) : null;
+    const agentFactory = (factoryProductId && agentFactoryById.get(factoryProductId)) || null;
     return {
-      factoryName: factory?.name || null,
+      factoryName: factory?.name || agentFactory?.name || null,
       productName: product?.name || null,
-      layer: link?.currentLayer ?? null,
     };
   };
 
-  // Draft codes: 1-based index over ALL drafts by creation time
-  const allDrafts = [...agentDrafts, ...dashboardDrafts];
-  const codeById = new Map<string, number>();
-  [...allDrafts]
-    .sort((a, b) => (Number(a.createdAt) || 0) - (Number(b.createdAt) || 0) || (a.id < b.id ? -1 : 1))
-    .forEach((d, i) => codeById.set(d.id, i + 1));
-
   const cards: any[] = [];
 
-  // Agent-store drafts (with bubbles from versions)
+  // Agent-store drafts (only the newest version)
   for (const d of agentDrafts) {
-    const versions = agentVersionByDraft.get(d.id) || [];
-    const latestVer = versions.sort((a, b) => (b.version || 0) - (a.version || 0))[0];
-    const bubbles = latestVer?.bubbles || [];
+    const latest = latestVersionByDraft.get(d.id);
+    if (!latest) continue;
+    const bubbles = latest.bubbles || [];
     const fp = d.factory_product_id || "";
     const chatId = d.chat_id || "";
-    const names = nameFor(fp, chatId);
+    const names = nameFor(fp || null);
     const last = lastInboundByFp.get(fp) || lastInboundByChat.get(chatId);
+    const contact = contactByFp.get(fp);
+
+    // Sender name: prefer contact name, then message sender_name, then factory name
+    const senderName = contact?.name || last?.sender_name || last?.sender || names.factoryName || "Unknown sender";
+    const company = contact?.company || "";
+
     cards.push({
       kind: "message",
       id: d.id,
-      code: `D${codeById.get(d.id) || 0}.${latestVer?.version || 1}`,
-      importance: "high",
-      createdAt: d.createdAt || Date.now(),
-      draftType: d.kind || d.type || "reply",
-      followup: (d.kind || d.type) === "nudge",
-      factoryProductId: fp,
-      ...names,
-      why: d.reason || d.trigger || null,
-      lastMessage: last ? { text: last.text || "", translation: last.translation || null } : null,
+      factoryProductId: fp || null,
+      factoryName: names.factoryName,
+      productName: names.productName,
+      lastMessage: last ? {
+        text: last.text || "",
+        translation: last.translation || null,
+        sender: senderName,
+        company,
+        time: Number(last.sent_at) || null,
+      } : null,
       bubbles,
-      versions: versions.map((v) => ({
-        id: v.id,
-        versionNumber: v.version || 1,
-        text: (v.bubbles || []).join("\n"),
-        bubbles: v.bubbles || [],
-        status: v.status || "pending",
-        createdBy: v.source || "ai",
-        createdAt: v.createdAt || Date.now(),
-      })),
+      versions: [{
+        id: latest.id,
+        versionNumber: latest.version || 1,
+        text: (bubbles || []).join("\n\n"),
+        bubbles: bubbles || [],
+        status: latest.status || "pending",
+      }],
     });
   }
 
-  // Dashboard-store drafts
+  // Dashboard-store drafts (only pending, only newest version)
   for (const d of dashboardDrafts.filter((x: any) => x.status === "pending")) {
     const versions = await listDraftVersions(d.id).catch(() => []);
+    if (versions.length === 0) continue;
+    const latest = versions.reduce((m: any, v: any) => v.versionNumber > (m?.versionNumber || 0) ? v : m, versions[0]);
     const names = nameFor(d.factoryProductId);
     const last = lastInboundByFp.get(d.factoryProductId);
-    const latest = versions.reduce((m: number, v: any) => Math.max(m, v.versionNumber), 0);
+    const contact = contactByFp.get(d.factoryProductId);
+    const senderName = contact?.name || last?.sender_name || names.factoryName || "Unknown sender";
+    const company = contact?.company || "";
+
     cards.push({
       kind: "message",
       id: d.id,
-      code: `D${codeById.get(d.id) || 0}.${latest}`,
-      importance: "high",
-      createdAt: d.createdAt,
-      draftType: d.type,
-      followup: d.type === "nudge",
-      factoryProductId: d.factoryProductId,
-      ...names,
-      why: d.trigger || null,
-      lastMessage: last ? { text: last.text || "", translation: last.translation || null } : null,
-      bubbles: versions.length > 0 ? (versions[versions.length - 1]?.text || "").split("\n") : [],
-      versions: versions.map((v: any) => ({
-        id: v.id,
-        versionNumber: v.versionNumber,
-        text: v.text,
-        status: v.status,
-        createdBy: v.createdBy,
-        createdAt: v.createdAt,
-      })),
+      factoryProductId: d.factoryProductId || null,
+      factoryName: names.factoryName,
+      productName: names.productName,
+      lastMessage: last ? {
+        text: last.text || "",
+        translation: last.translation || null,
+        sender: senderName,
+        company,
+        time: Number(last.sent_at) || null,
+      } : null,
+      bubbles: latest.text ? latest.text.split("\n") : [],
+      versions: [{
+        id: latest.id,
+        versionNumber: latest.versionNumber,
+        text: latest.text,
+        bubbles: latest.text ? latest.text.split("\n") : [],
+        status: latest.status,
+      }],
     });
   }
 
-  // Agent-store questions
-  for (const q of agentQuestions) {
-    const names = nameFor(q.factory_product_id);
-    const body = (q.body ?? {}) as any;
-    cards.push({
-      kind: q.kind || "question",
-      id: q.id,
-      importance: q.importance || "medium",
-      createdAt: q.createdAt || Date.now(),
-      factoryProductId: q.factory_product_id,
-      ...names,
-      body,
-      answer: q.answer ?? null,
-    });
-  }
+  // Sort by creation time (newest first)
+  cards.sort((a: any, b: any) => (b.createdAt || 0) - (a.createdAt || 0));
 
-  // Dashboard-store questions
-  for (const q of questions.filter((x: any) => x.status === "open")) {
-    const names = nameFor(q.factoryProductId);
-    const body = (q.body ?? {}) as any;
-    const card: any = {
-      kind: q.kind,
-      id: q.id,
-      importance: q.importance,
-      createdAt: q.createdAt,
-      factoryProductId: q.factoryProductId,
-      ...names,
-      body,
-      answer: q.answer ?? null,
-    };
-    if (q.kind === "fee") card.feeMessage = resolveFeeMessage(body);
-    cards.push(card);
-  }
+  const toApprove = cards.length;
 
-  const rank = (i: string) => (i === "high" ? 0 : i === "medium" ? 1 : 2);
-  cards.sort((a, b) => rank(a.importance) - rank(b.importance) || a.createdAt - b.createdAt);
-
-  const toApprove = cards.filter((c) => c.kind === "message").length;
-  const samples = cards.filter((c) => c.kind === "sample_flag" || c.kind === "sample_review").length;
-  const qs = cards.length - toApprove - samples;
-
-  return NextResponse.json({ counts: { toApprove, questions: qs, samples }, cards });
+  return NextResponse.json({
+    counts: { toApprove, questions: 0, samples: 0 },
+    cards,
+  });
 }
