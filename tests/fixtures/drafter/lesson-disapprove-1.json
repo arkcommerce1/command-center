@@ -1,0 +1,16 @@
+{
+  "id": "lesson-disapprove-1",
+  "message": "We can make the safety vest to spec! Can you confirm?",
+  "ctx": {
+    "step1Done": true,
+    "step2Done": true,
+    "step3Done": true,
+    "step4Done": false,
+    "specAnswers": ["Material: 100% polyester", "Sizes: S-4XL"],
+    "openChanges": 0,
+    "approach": "already_selling"
+  },
+  "expected": {
+    "action": "draft"
+  }
+}

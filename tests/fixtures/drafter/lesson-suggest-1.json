@@ -1,0 +1,16 @@
+{
+  "id": "lesson-suggest-1",
+  "message": "Hi this is Shene I am from Nanjong Industrial Company how can we help",
+  "ctx": {
+    "step1Done": false,
+    "step2Done": false,
+    "step3Done": false,
+    "step4Done": false,
+    "specAnswers": [],
+    "openChanges": 0,
+    "approach": "already_selling"
+  },
+  "expected": {
+    "action": "draft"
+  }
+}

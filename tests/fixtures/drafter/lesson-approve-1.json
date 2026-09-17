@@ -1,0 +1,16 @@
+{
+  "id": "lesson-approve-1",
+  "message": "Hi we are Xinfa Textile Company",
+  "ctx": {
+    "step1Done": false,
+    "step2Done": false,
+    "step3Done": false,
+    "step4Done": false,
+    "specAnswers": [],
+    "openChanges": 0,
+    "approach": "already_selling"
+  },
+  "expected": {
+    "action": "draft"
+  }
+}
