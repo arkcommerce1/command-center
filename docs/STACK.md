@@ -556,3 +556,22 @@ Buttons/controls (from reading `src/app/(main)/dashboard/products/[id]/page.tsx`
 - **Goal 5 (text spacing)**: Root cause was the CJK font (NotoSansSC) being used for ALL text including English. Its wide character spacing made "MB-0804" look like "MB-0 8 0 4". Fix: dual-font system — Helvetica (StandardFonts) for all Latin text, CJK font only when `hasCJK()` detects Chinese characters. `pickFont()` function selects the right font per text segment.
 - **Goal 6 (row shading)**: Row background rectangles were offset from the text rows. Fixed by drawing the rectangle with `y: y - thisRowH` and `height: thisRowH` before drawing text, so the band sits exactly behind the row. For wrapped values, `thisRowH = maxLines * 12 + 6` grows to cover all lines.
 - **Goal 7 (remove version)**: Removed "Spec v3 · approved [date]" from the PDF header and "Spec v3 · MB-0804 · Page 1 of 1" from the footer. Footer now shows "Page 1 of 1" only. Spec versions remain visible on the dashboard product page.
+
+## Round 4 — Goal 1: Message Pipeline Trace
+
+### Root cause
+**CC_AGENT_TOKEN mismatch**: Donna's plugin `.env` had a 64-char token (`0cd38ce5fc0ce76dc01e77b058c684b947519caf45a2a0bf016206c1b0e46f59`) but the dashboard's `.env.local` had a truncated 15-char version (`0cd38ce5fc0ce76`). Every API call from the plugin to the dashboard returned 401 Unauthorized.
+
+### Step-by-step trace
+1. **WhatsApp session connected**: PASS — bridge health OK, uptime 51.8h
+2. **Plugin loaded**: PASS — "command_center: registered (ingest/job/outbox/tick/send-block/14 tools)"
+3. **Ingest allowlist**: PASS — no channel_directory.json restriction; plugin ingests all WhatsApp groups
+4. **Plugin BASE_URL**: PASS — points to `http://127.0.0.1:3100` (local VPS, not Vercel)
+5. **CC_AGENT_TOKEN**: **FAIL** — Donna's token (64 chars) ≠ dashboard token (15 chars, truncated). All API calls returned 401.
+6. **Same database**: PASS — both use the same local Postgres at `localhost:5432/command_center`
+7. **Messages page queries**: PASS — `/api/chats` and `/api/messages` read from agent_kv via `dbFind()`, data exists
+8. **Contacts**: Data exists (2 contacts in agent store) but were not created from the Rose Shene message (that was lost to 401)
+9. **Actionables**: 1 pending draft exists (from a previous test) but not from the Rose Shene message
+
+### Fix
+Synced dashboard `.env.local` CC_AGENT_TOKEN to match Donna's full 64-char token. Restarted cc-dashboard. Verified ingest returns 200 with correct token. Restarted Donna gateway — no 401s since restart.
