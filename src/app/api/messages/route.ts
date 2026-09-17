@@ -16,7 +16,10 @@ export async function GET(req: NextRequest) {
   const chatById = new Map(chats.map((c: any) => [c.id, c]));
   const contactById = new Map(contacts.map((c: any) => [c.id, c]));
   const memberByChatAndContact = new Map<string, string>();
+  // Build a lookup by chat_id + external_id (for messages where contact_id is not set yet)
+  const memberByChatAndExt = new Map<string, string>();
   for (const m of members as any[]) {
+    if (m.chat_id && m.external_id) memberByChatAndExt.set(`${m.chat_id}:${m.external_id}`, m.name || "");
     if (m.chat_id && m.contact_id) memberByChatAndContact.set(`${m.chat_id}:${m.contact_id}`, m.name || "");
   }
   const rows = messages
@@ -27,11 +30,16 @@ export async function GET(req: NextRequest) {
       id: m.id,
       chat_id: m.chat_id,
       chat_name: chatById.get(m.chat_id)?.name || chatById.get(m.chat_id)?.external_id || "",
-      sender: contactById.get(m.contact_id)?.name || memberByChatAndContact.get(`${m.chat_id}:${m.contact_id}`) || m.contact_id || "",
+      sender: contactById.get(m.contact_id)?.name
+        || memberByChatAndContact.get(`${m.chat_id}:${m.contact_id}`)
+        || m.contact_id
+        || m.sender_name
+        || "",
       direction: m.direction || "in",
       text: m.text || "",
       translation: m.translation || "",
       sent_at: m.sent_at || null,
+      is_ours: m.is_ours || false,
     }));
   return NextResponse.json(rows);
 }
