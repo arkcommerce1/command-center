@@ -2,7 +2,7 @@
 // POST /api/agent/approval-reply, so dashboard and WhatsApp always apply the
 // same guards and produce the same state. Writes dashboard store (draft +
 // versions) and agent-store (exactly one outbox row the poller sends).
-import { dbFind, dbInsert } from "@/lib/cc/agent-store";
+import { dbFind, dbInsert, dbUpdate } from "@/lib/cc/agent-store";
 import { draftCodeFor } from "@/lib/cc/approval-codes";
 import {
   buildOutboxRow,
@@ -25,6 +25,31 @@ export async function resolveChatId(factoryProductId: string): Promise<string | 
   return msgs[0].chat_id as string;
 }
 
+// Agent-store draft helpers (used as fallback when dashboard store has no draft).
+async function getAgentDraft(id: string): Promise<any | null> {
+  const drafts = await dbFind("drafts", (d: any) => d.id === id);
+  return drafts[0] || null;
+}
+
+async function listAgentDraftVersions(draftId: string): Promise<any[]> {
+  return dbFind("draftVersions", (v: any) => v.draft_id === draftId);
+}
+
+async function saveAgentDraft(draft: any): Promise<void> {
+  await dbUpdate("drafts", draft.id, { status: draft.status });
+}
+
+async function saveAgentDraftVersion(version: any): Promise<void> {
+  await dbUpdate("draftVersions", version.id, {
+    status: version.status,
+    approvalChannel: version.approvalChannel,
+    approver: version.approver,
+    approvedAt: version.approvedAt,
+    sentAt: version.sentAt,
+    disapproveReason: version.disapproveReason,
+  });
+}
+
 export async function approveDraftVersion(input: {
   draftId: string;
   versionId?: string;
@@ -34,17 +59,31 @@ export async function approveDraftVersion(input: {
   sendAfter?: SendAfterChoice | number | null;
   expectedHash?: string;
 }): Promise<ApproveResult> {
-  const draft = await getDraft(input.draftId);
+  // Try dashboard store first, then agent store.
+  let draft: any = await getDraft(input.draftId);
+  let useAgentStore = false;
+  if (!draft) {
+    draft = await getAgentDraft(input.draftId);
+    if (draft) useAgentStore = true;
+  }
   if (!draft) return { ok: false, httpStatus: 404, code: "draft_not_found", message: "draft not found" };
-  const allVersions = await listDraftVersions(input.draftId);
+
+  let allVersions: any[];
+  if (useAgentStore) {
+    allVersions = await listAgentDraftVersions(input.draftId);
+  } else {
+    allVersions = await listDraftVersions(input.draftId);
+  }
   if (allVersions.length === 0) {
     return { ok: false, httpStatus: 404, code: "version_not_found", message: "version not found" };
   }
-  const latestNumber = allVersions.reduce((m, v) => Math.max(m, v.versionNumber), 0);
+  const latestNumber = allVersions.reduce((m, v) => Math.max(m, v.versionNumber || v.version || 0), 0);
   let version = input.versionId
-    ? await getDraftVersion(input.versionId)
-    : allVersions.find((v) => v.versionNumber === (input.versionNumber ?? latestNumber)) ?? null;
-  if (!version || version.draftId !== input.draftId) {
+    ? (useAgentStore
+        ? allVersions.find((v) => v.id === input.versionId) ?? null
+        : await getDraftVersion(input.versionId))
+    : allVersions.find((v) => (v.versionNumber || v.version) === (input.versionNumber ?? latestNumber)) ?? null;
+  if (!version || (version.draftId || version.draft_id) !== input.draftId) {
     return { ok: false, httpStatus: 404, code: "version_not_found", message: "version not found" };
   }
 
@@ -57,9 +96,13 @@ export async function approveDraftVersion(input: {
     return { ok: true, draft, version, outbox: existingOutbox[0], code: null, alreadyApproved: true };
   }
 
+  const fpId = draft.factoryProductId || draft.factory_product_id || null;
+  const vText = version.text || (version.bubbles || []).join("\n");
+  const vNum = version.versionNumber || version.version || 1;
+
   const check = checkApprovable({
-    draft: { id: draft.id, factoryProductId: draft.factoryProductId, status: draft.status },
-    version: { id: version.id, draftId: version.draftId, versionNumber: version.versionNumber, text: version.text },
+    draft: { id: draft.id, factoryProductId: fpId, status: draft.status },
+    version: { id: version.id, draftId: input.draftId, versionNumber: vNum, text: vText },
     latestVersionNumber: latestNumber,
     existingOutboxForVersion: existingOutbox.length,
     expectedHash: input.expectedHash,
@@ -79,7 +122,7 @@ export async function approveDraftVersion(input: {
     };
   }
 
-  const chatId = await resolveChatId(draft.factoryProductId);
+  const chatId = await resolveChatId(fpId || "");
   if (!chatId) {
     return { ok: false, httpStatus: 409, code: "no_chat", message: "no chat found for this draft; cannot queue send" };
   }
@@ -104,19 +147,31 @@ export async function approveDraftVersion(input: {
   version.approver = input.approver;
   version.approvedAt = now;
   version.sentAt = now;
-  await saveDraftVersion(version);
+  if (useAgentStore) {
+    await saveAgentDraftVersion(version);
+  } else {
+    await saveDraftVersion(version);
+  }
 
-  const all = await listDraftVersions(input.draftId);
-  for (const other of all) {
+  // Replace other pending versions
+  for (const other of allVersions) {
     if (other.id === version.id) continue;
     if (other.status === "pending") {
       other.status = "replaced";
-      await saveDraftVersion(other);
+      if (useAgentStore) {
+        await saveAgentDraftVersion(other);
+      } else {
+        await saveDraftVersion(other);
+      }
     }
   }
 
   draft.status = "sent";
-  await saveDraft(draft);
+  if (useAgentStore) {
+    await saveAgentDraft(draft);
+  } else {
+    await saveDraft(draft);
+  }
 
   const allDrafts = await listDrafts();
   const n = draftCodeFor(allDrafts, draft.id);
@@ -125,7 +180,7 @@ export async function approveDraftVersion(input: {
     draft,
     version,
     outbox,
-    code: n != null ? `D${n}.${version.versionNumber}` : null,
+    code: n != null ? `D${n}.${vNum}` : null,
     alreadyApproved: false,
   };
 }
