@@ -575,3 +575,16 @@ Buttons/controls (from reading `src/app/(main)/dashboard/products/[id]/page.tsx`
 
 ### Fix
 Synced dashboard `.env.local` CC_AGENT_TOKEN to match Donna's full 64-char token. Restarted cc-dashboard. Verified ingest returns 200 with correct token. Restarted Donna gateway — no 401s since restart.
+
+## Round 4 — Goal 1B: Our People Phone Matching
+
+### Rose Shene message — was it skipped?
+**No.** The Rose Shene message was lost because of the 401 token mismatch (Goal 1), not because Shene was on "Our people." Shene had no phone number in the settings, so even if the ingest had succeeded, `_is_ours()` would have returned false (no phone to match). The plugin's "our people" check was never reached because the ingest API call returned 401 before any logic ran.
+
+### How Donna reads the "Our people" list
+1. **Storage**: The list lives in the Postgres `settings_kv` table, accessed via `/api/settings` (GET returns the full PlaybookSettings, PATCH merges).
+2. **Plugin fetch**: The `command_center` plugin calls `GET /api/settings` and caches the result for 60 seconds (`_OUR_PEOPLE_TTL = 60`). This means changes in the dashboard take effect within 1 minute without restarting Donna.
+3. **Phone matching**: When a WhatsApp message arrives, the plugin extracts the sender's `user_id` (their WhatsApp phone number in JID format like `8618069936600@s.whatsapp.net`). It normalizes both the sender ID and each "our person" phone number to digits-only and compares. If any match, the message is ingested with `is_ours: true`, which tells the server to save the message but skip contact creation, actionables, and drafts.
+4. **Messages page**: Messages from "our people" appear on `/dashboard/messages` with the same data as factory messages. The `is_ours` flag is saved on the message record for potential UI labeling.
+5. **Yuki warning**: If Yuki's entry has no WhatsApp number, the Settings page shows "Add Yuki's WhatsApp number."
+6. **Shene default**: Shene's phone is empty by default — it needs to be filled in from the Settings page.
