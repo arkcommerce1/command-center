@@ -549,3 +549,10 @@ Buttons/controls (from reading `src/app/(main)/dashboard/products/[id]/page.tsx`
 - **Image fetch**: Tries Node fetch first, falls back to curl for images that fail with ECONNREFUSED.
 - **Send Yuki Brief pop-up**: Replaces one-click send. Pop-up has editable message pre-filled with product name, PDF preview iframe, "Include order quantity" checkbox (unchecked by default), Send + Cancel.
 - **pg-adapter fix**: `@vercel/postgres` was still being imported in store.ts and agent-store.ts — replaced with local `pg-adapter.ts` using `pg.Pool`. This was the root cause of all API 500 errors on the VPS.
+
+## Round 3 (continued) — Goals 5-7
+
+### Decisions
+- **Goal 5 (text spacing)**: Root cause was the CJK font (NotoSansSC) being used for ALL text including English. Its wide character spacing made "MB-0804" look like "MB-0 8 0 4". Fix: dual-font system — Helvetica (StandardFonts) for all Latin text, CJK font only when `hasCJK()` detects Chinese characters. `pickFont()` function selects the right font per text segment.
+- **Goal 6 (row shading)**: Row background rectangles were offset from the text rows. Fixed by drawing the rectangle with `y: y - thisRowH` and `height: thisRowH` before drawing text, so the band sits exactly behind the row. For wrapped values, `thisRowH = maxLines * 12 + 6` grows to cover all lines.
+- **Goal 7 (remove version)**: Removed "Spec v3 · approved [date]" from the PDF header and "Spec v3 · MB-0804 · Page 1 of 1" from the footer. Footer now shows "Page 1 of 1" only. Spec versions remain visible on the dashboard product page.
