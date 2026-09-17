@@ -12,6 +12,8 @@ interface PlaybookPerson {
   name: string;
   role: string;
   location: string;
+  whatsapp: string;
+  email: string;
 }
 
 interface PlaybookHoliday {
@@ -89,7 +91,7 @@ export default function PlaybookSettingsPage() {
   }
 
   function addPerson() {
-    setSettings((s) => ({ ...s, ourPeople: [...s.ourPeople, { name: "", role: "", location: "" }] }));
+    setSettings((s) => ({ ...s, ourPeople: [...s.ourPeople, { name: "", role: "", location: "", whatsapp: "", email: "" }] }));
   }
 
   function removePerson(i: number) {
@@ -222,7 +224,7 @@ export default function PlaybookSettingsPage() {
         </CardHeader>
         <CardContent className="flex flex-col gap-2">
           {settings.ourPeople.map((p, i) => (
-            <div key={i} className="grid grid-cols-[1fr_1fr_1fr_auto] gap-2">
+            <div key={i} className="grid grid-cols-[1fr_1fr_1fr_1fr_1fr_auto] gap-2">
               <Input
                 value={p.name}
                 onChange={(e) => updatePerson(i, { name: e.target.value })}
@@ -238,11 +240,24 @@ export default function PlaybookSettingsPage() {
                 onChange={(e) => updatePerson(i, { location: e.target.value })}
                 placeholder="Location"
               />
+              <Input
+                value={p.whatsapp}
+                onChange={(e) => updatePerson(i, { whatsapp: e.target.value })}
+                placeholder="WhatsApp # (with country code)"
+              />
+              <Input
+                value={p.email}
+                onChange={(e) => updatePerson(i, { email: e.target.value })}
+                placeholder="Email (optional)"
+              />
               <Button variant="ghost" onClick={() => removePerson(i)}>
                 ✕
               </Button>
             </div>
           ))}
+          {settings.ourPeople.some((p) => p.name.toLowerCase() === "yuki" && !p.whatsapp) && (
+            <p className="text-sm text-amber-600">Add Yuki's WhatsApp number.</p>
+          )}
           <Button variant="outline" size="sm" className="w-fit" onClick={addPerson}>
             + Person
           </Button>

@@ -27,7 +27,9 @@ const Ingest = z.object({
     media: z.any().optional(),
     sent_at: z.number().optional(),
     factory_product_id: z.string().optional().default(""),
+    is_ours: z.boolean().optional().default(false),
   }),
+  is_ours: z.boolean().optional().default(false),
 });
 
 // POST /api/agent/ingest — idempotent on external_id; upserts chat+members; queues contacts+organize jobs.
@@ -94,6 +96,12 @@ export async function POST(req: NextRequest) {
     existing_contacts: [] as any[],
     known_factories: [] as any[],
   };
+
+  const isOurs = !!(b as any).is_ours || !!(b.message as any).is_ours;
+  if (isOurs) {
+    // Messages from "our people": save but skip contact/actionable creation.
+    return NextResponse.json({ deduped: false, chat, message, jobs_queued: [], is_ours: true });
+  }
 
   const senderKnown = !!b.message.contact_id;
   if (!senderKnown) {

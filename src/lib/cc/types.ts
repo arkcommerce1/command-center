@@ -218,7 +218,7 @@ export function blankCosts(): Costs {
 // --- Playbook / durable settings ---
 export type SampleAskTiming = "after_layer_2" | "after_layer_3";
 
-export interface PlaybookPerson { name: string; role: string; location: string }
+export interface PlaybookPerson { name: string; role: string; location: string; whatsapp: string; email: string }
 export interface PlaybookHoliday { name: string; startDate: string; endDate: string }
 
 export interface PlaybookSettings {
@@ -248,8 +248,8 @@ export function defaultPlaybookSettings(): PlaybookSettings {
     ourBrands: [...OUR_BRANDS_SEED],
     approachADisclosures: "We sell on Amazon and Retail.",
     ourPeople: [
-      { name: "Yuki", role: "Factory relations / sourcing", location: "China" },
-      { name: "Shene", role: "Employee", location: "New York" },
+      { name: "Yuki", role: "Factory relations / sourcing", location: "China", whatsapp: "+86 180 6993 6600", email: "" },
+      { name: "Shene", role: "Employee", location: "New York", whatsapp: "", email: "" },
     ],
     holidays: [
       { name: "National Day Golden Week", startDate: "2026-10-01", endDate: "2026-10-07" },
@@ -272,7 +272,7 @@ export function normSettings(s: any): PlaybookSettings {
       : [...d.ourBrands],
     approachADisclosures: typeof s.approachADisclosures === "string" ? s.approachADisclosures : d.approachADisclosures,
     ourPeople: Array.isArray(s.ourPeople)
-      ? s.ourPeople.map((p: any) => ({ name: String(p?.name || ""), role: String(p?.role || ""), location: String(p?.location || "") }))
+      ? s.ourPeople.map((p: any) => ({ name: String(p?.name || ""), role: String(p?.role || ""), location: String(p?.location || ""), whatsapp: String(p?.whatsapp || ""), email: String(p?.email || "") }))
       : d.ourPeople,
     holidays: Array.isArray(s.holidays)
       ? s.holidays.map((h: any) => ({ name: String(h?.name || ""), startDate: String(h?.startDate || ""), endDate: String(h?.endDate || "") }))
