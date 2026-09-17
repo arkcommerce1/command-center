@@ -100,6 +100,13 @@ export async function approveDraftVersion(input: {
   const vText = version.text || (version.bubbles || []).join("\n");
   const vNum = version.versionNumber || version.version || 1;
 
+  // Normalize version fields for agent-store versions.
+  if (useAgentStore) {
+    version.versionNumber = vNum;
+    version.draftId = input.draftId;
+    version.text = vText;
+  }
+
   const check = checkApprovable({
     draft: { id: draft.id, factoryProductId: fpId, status: draft.status },
     version: { id: version.id, draftId: input.draftId, versionNumber: vNum, text: vText },
