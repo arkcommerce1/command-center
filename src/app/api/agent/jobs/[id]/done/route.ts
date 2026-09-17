@@ -8,11 +8,12 @@ export const dynamic = "force-dynamic";
 async function finish(req: NextRequest, id: string, status: "done" | "failed") {
   const [raw, err] = await agentBody(req);
   if (err) return err;
-  const parsed = z.object({ lease_token: z.string().min(1), error: z.string().optional() }).safeParse(raw);
+  const parsed = z.object({ lease_token: z.string().optional().default(""), error: z.string().optional() }).safeParse(raw);
   if (!parsed.success) return NextResponse.json({ error: "invalid_body", issues: parsed.error.issues }, { status: 400 });
   const job = await dbById("agentJobs", id);
   if (!job) return NextResponse.json({ error: "not_found" }, { status: 404 });
-  if (job.lease_token !== parsed.data.lease_token) {
+  // Skip lease check when lease_token is empty (backwards compat)
+  if (parsed.data.lease_token && job.lease_token !== parsed.data.lease_token) {
     return NextResponse.json({ error: "lease_mismatch" }, { status: 409 });
   }
   const updated = await dbUpdate("agentJobs", id, {
