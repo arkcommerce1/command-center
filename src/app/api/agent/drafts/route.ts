@@ -14,6 +14,7 @@ const Drafts = z.object({
   reason: z.string().optional().default(""),
   bubbles: z.array(z.string()).min(1).max(4),
   source: z.enum(["ai", "suggestion", "update"]).default("ai"),
+  rules_used: z.any().optional(),
 });
 
 function hashBubbles(bubbles: string[]): string {
@@ -59,6 +60,7 @@ export async function POST(req: NextRequest) {
     bubbles: b.bubbles,
     content_hash: hashBubbles(b.bubbles),
     source: b.source,
+    rules_used: b.rules_used || null,
     guardrail: { blocked: false, reason: null },
   });
   await dbUpdate("drafts", draft.id, { current_version: version.version });
