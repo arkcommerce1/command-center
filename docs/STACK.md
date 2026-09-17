@@ -667,6 +667,171 @@ I did not delete any of this — CLAUDE.md says delete test data only "once its 
 
 Waiting for Haim's go-ahead before changing any code.
 
+## Round 6 (Sep 17, 2026) — Actionables rebuild: real root cause + one-card design
+
+Haim approved the Session Start Audit's proposed order and said "go for it"
+starting with Actionables. This round found a **deeper, previously-unfound
+root cause** than Round 5 fixed, and rebuilt the page to match CLAUDE.md's
+one-card spec exactly. No code was deployed — see "Not done this round"
+below; this cloud session has no SSH/VPS access.
+
+### Root cause: Approve/Suggest changes/Disapprove were 404ing on every real draft
+
+Round 5 fixed `/api/decisions` so agent-store drafts (what Donna's plugin
+actually creates) would *display*. It did not fix the write side.
+`approveDraftVersion` (`src/lib/cc/approve-flow.ts`), the `/api/drafts/*`
+routes, and `getQuestion`/`saveQuestion` all read/wrote **only the dashboard
+store** (`src/lib/cc/store.ts`). Since virtually every real draft and
+question lives in the **agent store** instead (`POST /api/agent/drafts`,
+the organizer's questions), clicking Approve, Suggest changes, or
+Disapprove on any real, non-test Actionables card returned
+`404 draft_not_found` / `404 question not found`. This was silent — no
+error surfaced anywhere obvious — and is very likely why "Actionables was
+marked verified with fake data while the real flow was broken" (CLAUDE.md's
+own words) kept recurring: the fake-data tests in earlier rounds happened
+to hit `/api/decisions` and `/api/questions/:id/answer` on dashboard-store
+rows created directly via `saveDraft`/`saveQuestion`, which DO work — so the
+buttons looked functional in every test that didn't use a real WhatsApp
+message all the way through the plugin.
+
+Confirmed independently: `tests/unit/goal7-flows.test.ts`'s pre-existing
+"question answer queues a draft job" test was already failing at 404
+before this round touched anything.
+
+### Fix: one adapter, both stores, both write and read
+
+- **`src/lib/cc/actionables-store.ts`** (new): resolves a draft or question
+  by id in *either* store and writes back to whichever one it came from.
+  `approveUDraft` / `suggestChangesOnDraft` / `disapproveUDraft` /
+  `ignoreUDraft` and the question equivalents replace the old
+  store-specific logic for the Actionables page only — `approve-flow.ts`
+  and the old `/api/drafts/*` / `/api/questions/:id/answer` routes were
+  **left in place, untouched**, since `/api/agent/approval-reply` (the
+  WhatsApp "Y14.2" approval-code shortcut) still depends on them. That
+  shortcut still only sees dashboard-store drafts — it was already broken
+  for agent-store ones and stays that way; not fixed this round since
+  CLAUDE.md's whole premise is "Haim never needs to open WhatsApp," so it's
+  unclear this WhatsApp-approval-code feature (from docs/SPEC.md) is still
+  wanted. Flagged for Haim rather than assumed.
+- **`GET /api/decisions`** rewritten: one card per conversation
+  (`factory_product_id`), not one per draft/version/question. No `code`
+  field, no `importance` field, no separate `product_pick`/`fee`/etc. card
+  kinds in the payload — everything folds into one shape with
+  `theySaid` / `donnaReply` / `decisionNeeded` / `previousDrafts` /
+  `canApprove` / `canSuggest` / `canDisapprove` / `canIgnore`. Card id is
+  `draft:<id>` or `question:<id>` (internal only — never shown in the UI).
+- **`POST /api/decisions/[id]/action`** (new): the 4 buttons, one endpoint.
+- **`POST /api/decisions/link-product`** (new): the "which product?"
+  dropdown for an unlinked chat. Creates a real `Factory` row (additive
+  field `Factory.agentFactoryProductId`, ties it to the conversation) so
+  the same conversation resolves to the right product on every future
+  poll — this also fixes the "Unknown factory · Unknown product" bug,
+  since almost no conversation had ever gotten a real product link before.
+- **Frontend**: `action-card.tsx` (one component) replaces
+  `message-card.tsx` + `question-cards.tsx` + `word-diff.tsx` (all
+  deleted). No codes, no diffs, no separate card types, no blank answer
+  boxes — matches CLAUDE.md's Actionables spec line by line. Collapsed
+  "Previous drafts" link per card.
+- **Dashboard home** (`/dashboard/default`): the Actionables count now
+  reads from the same `/api/decisions` the Actionables page uses (was
+  reading `/api/drafts?status=pending` separately — a second, independently
+  drifting count). Also added the "Donna connected · last message received
+  [time]" status line CLAUDE.md's Dashboard spec calls for, which didn't
+  exist at all — derived from the most recent inbound message via the
+  existing `GET /api/messages`, red if nothing's come in for 24h (no direct
+  bridge-health signal is exposed to the dashboard today).
+
+### "Suggest changes" / "Disapprove" now really use AI — decision needed from Haim
+
+CLAUDE.md's spec says Suggest changes makes "Donna" rewrite in the same
+card, and Disapprove makes "Donna" write a fresh draft. The old code used a
+deterministic template stub for both (`decision-bridge.ts`'s `stubRewrite`,
+explicitly commented as a placeholder). `src/lib/cc/reply-ai.ts` (new) now
+calls an actual model for both, with the deterministic stub only as a
+network-failure fallback.
+
+**Open question for Haim, not decided unilaterally**: this uses the **Nous
+Portal** (`NOUS_API_KEY`), the same one `/api/spec-ai` already uses, per the
+"Anthropic-vs-Nous: RESOLVED — Nous Portal stays" decision from Sep 16.
+But CLAUDE.md's own "Environment warning" section says "The dashboard needs
+`ANTHROPIC_API_KEY` for drafting" — which reads like that decision may have
+since changed. Introducing a new paid API is a real, billable, hard-to-
+reverse-in-spirit decision, so this round did **not** switch to Anthropic
+without asking. If Haim wants dashboard-side drafting (this, and eventually
+the Goal 3-8 learning system) on Anthropic instead of Nous, say so and it's
+a small change (`reply-ai.ts` is the only place it'd need to move).
+
+### Test data — still not deleted
+
+Per CLAUDE.md's own rule ("delete test data once its check passes"), the
+test contacts/products/messages listed in the Session Start Audit above are
+still on the live site. This round's fix can't be verified as "passed" from
+this cloud session (no way to deploy or send a real WhatsApp message from
+here — see below), so deleting the test data now would destroy the last
+real fixtures useful for someone verifying the fix, and risks looking like
+the bug was "fixed" without proof. Delete it right after the first real
+message is confirmed working end-to-end on the live site.
+
+### Not done this round (needs Haim / VPS access)
+
+- **Nothing is deployed.** This session runs in an isolated cloud
+  container with no SSH access to `ark-vps` and no `DATABASE_URL`/`.env.local`
+  — it can only push code to the `claude/amazing-mendel-22mykl` branch.
+  Someone with VPS access needs to `git pull`, `npm run build`,
+  `systemctl restart cc-dashboard` before any of this is live. **The "real
+  data" verification bar in CLAUDE.md ("done only when its checks pass on
+  the live site with real data") is not met yet** — this round is
+  code-complete and test-covered, not live-verified.
+- **The 6 duplicate "Carlos from Nanjong" contacts and the "Factory Person"
+  = Haim's-own-number-mis-filed-as-a-factory bug** from the audit are not
+  fixed — out of scope for the Actionables card rebuild specifically;
+  next up per the proposed order.
+- **`/dashboard/messages` vs `/dashboard/activity` duplication**: not
+  collapsed yet (item 4 of the proposed order).
+
+### Decisions
+
+- **Conversation key = `factory_product_id`.** Every agent-store draft and
+  question already carries one (set by the plugin per-chat), so it's used
+  as the single grouping key for "one card per conversation." `chat_id` is
+  resolved from it via the `messages` collection when needed (unchanged
+  from the existing `resolveChatId` helper).
+- **fee / guardrail_block / send_uncertain folded into the same 4 buttons**
+  (Approve/Suggest/Disapprove/Ignore) rather than kept as distinct card
+  types, per CLAUDE.md's "no separate question cards" rule. Exact mapping:
+  fee → Approve = pay (queues the shown @Yuki message), Disapprove =
+  decline, Suggest = note for Haim; guardrail_block → only Suggest (write
+  guidance, drafts a fresh reply) and Ignore, since there's no safe text to
+  send; send_uncertain → Approve = mark-sent, Disapprove = send-again,
+  Ignore = leave it. Zero live cards of these kinds exist today to validate
+  against; revisit if the mapping feels wrong once real ones show up.
+- **`sample_flag`/`sample_review` removed from Actionables entirely** —
+  they were display-only (no working buttons even before this round) and
+  CLAUDE.md's Actionables spec doesn't mention samples; the dedicated
+  Samples page (Goal 10) already owns that.
+- **`fileParallelism: false` added to `vitest.config.ts`.** Several test
+  files share the same file-backed stores (`data/store.json`,
+  `data/agent.json`) with a snapshot-restore per file; running test files
+  in parallel raced on those shared files and flaked 1-3 tests per full
+  `vitest run` (confirmed: every test passes in isolation, fails
+  intermittently only in the full parallel run). This was already flaking
+  before this round (`tests/unit/undo.test.ts`) — not new, just newly
+  diagnosed. Fix is sequential test *files*; tests within a file already
+  ran sequentially.
+- **`playwright.config.ts` chromium launch path made overridable** via
+  `PLAYWRIGHT_CHROMIUM_PATH` env var (only active when set). This sandbox
+  only has a plain Chromium binary, not the `chrome-headless-shell` variant
+  Playwright's default config expects; harmless everywhere else since the
+  var is unset by default.
+- **`tests/e2e/actionables.spec.ts`'s 3 "logged-out redirects to /login"
+  tests are skipped, not fixed or deleted**, with the reason on record:
+  auth is intentionally disabled dashboard-wide (`src/proxy.ts` passthrough)
+  and the same 3-style tests are also failing in `login.spec.ts` and
+  `smoke.spec.ts` for the same reason plus a dead Vercel URL — a
+  broader, pre-existing mismatch across the whole e2e suite that's bigger
+  than the Actionables rebuild. Left for Haim to decide: turn auth back on,
+  or update the whole e2e suite to match the current no-login reality.
+
 ## Round 5 — Goal 1: Why Messages Don't Create Actionables
 
 ### Root cause (3 issues)

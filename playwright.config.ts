@@ -22,5 +22,19 @@ export default defineConfig({
   use: {
     baseURL: process.env.BASE_URL ?? "https://command-center-review-tau.vercel.app",
   },
-  projects: [{ name: "chromium", use: { ...devices["Desktop Chrome"] } }],
+  projects: [
+    {
+      name: "chromium",
+      use: {
+        ...devices["Desktop Chrome"],
+        // This repo's pinned @playwright/test version expects a
+        // chrome-headless-shell binary that isn't always present in every
+        // execution environment; fall back to the plain Chromium binary
+        // when the env var points at one (e.g. sandboxed CI runners).
+        launchOptions: process.env.PLAYWRIGHT_CHROMIUM_PATH
+          ? { executablePath: process.env.PLAYWRIGHT_CHROMIUM_PATH }
+          : undefined,
+      },
+    },
+  ],
 });

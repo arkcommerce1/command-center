@@ -1,14 +1,18 @@
 "use client";
 
 import * as React from "react";
+
 import Link from "next/link";
+
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 
 interface Product {
-  id: string; name: string; stage: string;
+  id: string;
+  name: string;
+  stage: string;
   productStatus: "queue" | "active" | "completed";
   estimatedMonthlySales: number;
   averagePricePerUnit: number;
@@ -23,24 +27,34 @@ export default function DashboardPage() {
     try {
       setLoading(true);
       const r = await fetch("/api/products");
-      if (!r.ok) { setProducts([]); return; }
+      if (!r.ok) {
+        setProducts([]);
+        return;
+      }
       const d = await r.json();
-      setProducts((d || []).map((p: any) => ({
-        id: p.id,
-        name: p.name,
-        stage: p.stage,
-        productStatus: p.productStatus || "queue",
-        estimatedMonthlySales: p.estimatedMonthlySales || 0,
-        averagePricePerUnit: p.averagePricePerUnit || 0,
-        createdAt: p.createdAt || 0,
-      })));
-    } catch { setProducts([]); }
-    finally { setLoading(false); }
+      setProducts(
+        (d || []).map((p: any) => ({
+          id: p.id,
+          name: p.name,
+          stage: p.stage,
+          productStatus: p.productStatus || "queue",
+          estimatedMonthlySales: p.estimatedMonthlySales || 0,
+          averagePricePerUnit: p.averagePricePerUnit || 0,
+          createdAt: p.createdAt || 0,
+        })),
+      );
+    } catch {
+      setProducts([]);
+    } finally {
+      setLoading(false);
+    }
   }, []);
 
-  React.useEffect(() => { load(); }, [load]);
+  React.useEffect(() => {
+    void load();
+  }, [load]);
 
-  const all = products || [];
+  const all = products ?? [];
   const active = all.filter((p) => p.productStatus === "active");
   const queue = all.filter((p) => p.productStatus === "queue");
   const completed = all.filter((p) => p.productStatus === "completed");
@@ -48,54 +62,89 @@ export default function DashboardPage() {
 
   const [actionableCount, setActionableCount] = React.useState(0);
   React.useEffect(() => {
-    fetch("/api/drafts?status=pending").then(r => r.json()).then(d => {
-      setActionableCount(Array.isArray(d) ? d.length : 0);
-    }).catch(() => setActionableCount(0));
+    // Same source as /dashboard/actionables, so the two counts can never drift apart.
+    fetch("/api/decisions")
+      .then((r) => r.json())
+      .then((d) => {
+        setActionableCount(typeof d?.count === "number" ? d.count : 0);
+      })
+      .catch(() => setActionableCount(0));
   }, []);
+
+  // "Donna connected · last message received [time]" — derived from the most
+  // recent inbound WhatsApp message the dashboard has seen. Red if nothing
+  // has come in for a while, since there's no direct bridge-health check
+  // exposed to the dashboard.
+  const [lastMessageAt, setLastMessageAt] = React.useState<number | null | undefined>(undefined);
+  React.useEffect(() => {
+    fetch("/api/messages?limit=1")
+      .then((r) => r.json())
+      .then((rows) => {
+        setLastMessageAt(Array.isArray(rows) && rows[0]?.sent_at ? Number(rows[0].sent_at) : null);
+      })
+      .catch(() => setLastMessageAt(null));
+  }, []);
+  const STALE_MS = 24 * 60 * 60 * 1000;
+  const donnaHealthy = typeof lastMessageAt === "number" && Date.now() - lastMessageAt < STALE_MS;
 
   return (
     <div className="flex flex-col gap-6 p-6">
       <div>
-        <h1 className="text-2xl font-semibold">Dashboard</h1>
-        <p className="text-sm text-muted-foreground">Command Center overview</p>
+        <h1 className="font-semibold text-2xl">Dashboard</h1>
+        <p className="text-muted-foreground text-sm">Command Center overview</p>
+        {lastMessageAt !== undefined && (
+          <p className={`mt-1 text-sm ${donnaHealthy ? "text-muted-foreground" : "text-destructive"}`}>
+            {donnaHealthy ? "Donna connected" : "Donna may be disconnected"} · last message received{" "}
+            {lastMessageAt
+              ? new Date(lastMessageAt).toLocaleString("en-US", {
+                  month: "short",
+                  day: "numeric",
+                  hour: "numeric",
+                  minute: "2-digit",
+                })
+              : "never"}
+          </p>
+        )}
       </div>
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">Products Active</CardTitle>
+            <CardTitle className="font-medium text-muted-foreground text-sm">Products Active</CardTitle>
           </CardHeader>
           <CardContent>
-            <p className="text-3xl font-bold">{loading ? <Skeleton className="h-9 w-12" /> : active.length}</p>
+            <p className="font-bold text-3xl">{loading ? <Skeleton className="h-9 w-12" /> : active.length}</p>
           </CardContent>
         </Card>
 
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">Products in Queue</CardTitle>
+            <CardTitle className="font-medium text-muted-foreground text-sm">Products in Queue</CardTitle>
           </CardHeader>
           <CardContent>
-            <p className="text-3xl font-bold">{loading ? <Skeleton className="h-9 w-12" /> : queue.length}</p>
+            <p className="font-bold text-3xl">{loading ? <Skeleton className="h-9 w-12" /> : queue.length}</p>
           </CardContent>
         </Card>
 
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">Products Completed</CardTitle>
+            <CardTitle className="font-medium text-muted-foreground text-sm">Products Completed</CardTitle>
           </CardHeader>
           <CardContent>
-            <p className="text-3xl font-bold">{loading ? <Skeleton className="h-9 w-12" /> : completed.length}</p>
+            <p className="font-bold text-3xl">{loading ? <Skeleton className="h-9 w-12" /> : completed.length}</p>
           </CardContent>
         </Card>
 
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">Actionables</CardTitle>
+            <CardTitle className="font-medium text-muted-foreground text-sm">Actionables</CardTitle>
           </CardHeader>
           <CardContent className="flex items-center justify-between">
-            <p className="text-3xl font-bold">{actionableCount}</p>
+            <p className="font-bold text-3xl">{actionableCount}</p>
             <Link href="/dashboard/actionables">
-              <Button size="sm" variant="outline">Open</Button>
+              <Button size="sm" variant="outline">
+                Open
+              </Button>
             </Link>
           </CardContent>
         </Card>
@@ -104,17 +153,17 @@ export default function DashboardPage() {
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">Est. Monthly Sales (Active)</CardTitle>
+            <CardTitle className="font-medium text-muted-foreground text-sm">Est. Monthly Sales (Active)</CardTitle>
           </CardHeader>
           <CardContent>
-            <p className="text-3xl font-bold">${activeSales.toLocaleString(undefined, { maximumFractionDigits: 0 })}</p>
-            <p className="text-xs text-muted-foreground mt-1">Active products only (price x volume)</p>
+            <p className="font-bold text-3xl">${activeSales.toLocaleString(undefined, { maximumFractionDigits: 0 })}</p>
+            <p className="mt-1 text-muted-foreground text-xs">Active products only (price x volume)</p>
           </CardContent>
         </Card>
       </div>
 
       <div>
-        <h2 className="text-lg font-semibold mb-3">Products</h2>
+        <h2 className="mb-3 font-semibold text-lg">Products</h2>
         {loading ? (
           <div className="flex flex-col gap-2">
             {Array.from({ length: 3 }).map((_, i) => (
@@ -133,7 +182,15 @@ export default function DashboardPage() {
               >
                 <span className="font-medium">{p.name}</span>
                 <div className="flex items-center gap-2">
-                  <Badge variant={p.productStatus === "active" ? "default" : p.productStatus === "completed" ? "secondary" : "outline"}>
+                  <Badge
+                    variant={
+                      p.productStatus === "active"
+                        ? "default"
+                        : p.productStatus === "completed"
+                          ? "secondary"
+                          : "outline"
+                    }
+                  >
                     {p.productStatus}
                   </Badge>
                 </div>

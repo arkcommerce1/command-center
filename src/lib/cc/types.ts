@@ -2,33 +2,78 @@
 export type Stage = "idea" | "spec" | "sourcing" | "outreach" | "sampling" | "quotation" | "live" | "dead";
 export type SampleStatus = "none" | "requested" | "shipped" | "received" | "qc";
 export type QuoteStatus = "none" | "waiting_factory" | "waiting_me" | "received";
-export type FStage = "intro" | "contacted" | "sample_requested" | "sample_yiwu" | "sample_ny" | "sample_confirmed" | "quoted" | "negotiating" | "ordered";
+export type FStage =
+  | "intro"
+  | "contacted"
+  | "sample_requested"
+  | "sample_yiwu"
+  | "sample_ny"
+  | "sample_confirmed"
+  | "quoted"
+  | "negotiating"
+  | "ordered";
 
-export interface Reminder { id: string; date: string; text: string; done: boolean }
-export interface Comment { ts: number; text: string }
-export interface FactoryFile { name: string; url: string; ts: number }
-export interface Quote { unitPrice: number; qty: number; notes: string; ts: number }
+export interface Reminder {
+  id: string;
+  date: string;
+  text: string;
+  done: boolean;
+}
+export interface Comment {
+  ts: number;
+  text: string;
+}
+export interface FactoryFile {
+  name: string;
+  url: string;
+  ts: number;
+}
+export interface Quote {
+  unitPrice: number;
+  qty: number;
+  notes: string;
+  ts: number;
+}
 
 export type FactoryStage = "spec_agreed" | "sample_committed" | "passed_china" | "arrived_ny" | "sample_approved";
 
 export interface Factory {
-  id: string; productId: string; name: string; contact: string;
-  channel: string; active: boolean;
+  id: string;
+  productId: string;
+  name: string;
+  contact: string;
+  channel: string;
+  active: boolean;
   fstage: FStage;
   factoryStage: FactoryStage; // 5-step factory-level ladder (steps 4-8)
   canShareVolumes?: boolean; // SPEC §1.2: volumes named only when true (P4)
   people: Person[];
-  sampleStatus: SampleStatus; quoteStatus: QuoteStatus;
+  sampleStatus: SampleStatus;
+  quoteStatus: QuoteStatus;
   lastContactAt: number | null;
-  sampleRequestedAt: number | null; sampleShippedAt: number | null;
-  reminders: Reminder[]; comments: Comment[]; files: FactoryFile[];
-  quotes: Quote[]; updatedAt: number;
+  sampleRequestedAt: number | null;
+  sampleShippedAt: number | null;
+  reminders: Reminder[];
+  comments: Comment[];
+  files: FactoryFile[];
+  quotes: Quote[];
+  updatedAt: number;
+  // Links this Factory to a Donna/agent-store conversation (factory_product_id
+  // or chat_id) once Haim picks a product for an unlinked WhatsApp chat from
+  // the Actionables card. Undefined until then.
+  agentFactoryProductId?: string;
 }
 
 export interface Spec {
-  skus: string; sizes: string; packSizes: string;
-  materials: string; orderUnits: string; photos: string; notes: string;
-  sheetUrl: string; lastUpdate: string;
+  skus: string;
+  sizes: string;
+  packSizes: string;
+  materials: string;
+  orderUnits: string;
+  photos: string;
+  notes: string;
+  sheetUrl: string;
+  lastUpdate: string;
 }
 
 // --- Structured spec fields (versioned) ---
@@ -50,36 +95,83 @@ export interface SpecVersion {
 }
 
 export interface Costs {
-  sellPrice: number; referralFeePct: number; fbaFee: number;
-  dutiesPct: number; shippingUnit: number; ppcUnit: number; monthlySales: number;
+  sellPrice: number;
+  referralFeePct: number;
+  fbaFee: number;
+  dutiesPct: number;
+  shippingUnit: number;
+  ppcUnit: number;
+  monthlySales: number;
 }
 
-export interface SkuRow { id: string; sku: string; size: string; pack: string; order: string }
+export interface SkuRow {
+  id: string;
+  sku: string;
+  size: string;
+  pack: string;
+  order: string;
+}
 
 export interface YukiChecklist {
-  items: string; variants: string; quantities: string;
-  deliveryAddress: string; fee: string; dates: string;
+  items: string;
+  variants: string;
+  quantities: string;
+  deliveryAddress: string;
+  fee: string;
+  dates: string;
 }
 
-export interface YukiBrief { version: number; sentAt: number; content: string }
+export interface YukiBrief {
+  version: number;
+  sentAt: number;
+  content: string;
+}
 
-export interface Contact { id: string; name: string; role: string; company: string; wechat: string; whatsapp: string; email: string; notes: string; createdAt: number }
+export interface Contact {
+  id: string;
+  name: string;
+  role: string;
+  company: string;
+  wechat: string;
+  whatsapp: string;
+  email: string;
+  notes: string;
+  createdAt: number;
+}
 
-export interface Person { id: string; name: string; role: string; wechat: string; whatsapp: string; email: string }
+export interface Person {
+  id: string;
+  name: string;
+  role: string;
+  wechat: string;
+  whatsapp: string;
+  email: string;
+}
 
 export interface Product {
-  id: string; name: string; started: boolean; stage: Stage;
-  stageUpdatedAt: number; createdAt: number;
-  asin: string; imageUrl: string; fbaSheetUrl: string;
-  startDate: string; masterSku: string; skus: SkuRow[];
-  specDone: boolean; sourcingStarted: boolean;
-  spec: Spec; costs: Costs;
+  id: string;
+  name: string;
+  started: boolean;
+  stage: Stage;
+  stageUpdatedAt: number;
+  createdAt: number;
+  asin: string;
+  imageUrl: string;
+  fbaSheetUrl: string;
+  startDate: string;
+  masterSku: string;
+  skus: SkuRow[];
+  specDone: boolean;
+  sourcingStarted: boolean;
+  spec: Spec;
+  costs: Costs;
   // New structured spec format. spec.notes remains as legacy fallback/text blob.
   specFields: SpecField[];
   specVersion: number; // 0 = no approved version yet
   specVersions: SpecVersion[];
   specUpdatedAt: number | null;
-  yukiChecklist: YukiChecklist; boxCutoffDate: string;
+  yukiChecklist: YukiChecklist;
+  boxCutoffDate: string;
   yukiBriefs: YukiBrief[];
   approach: ProductApproach;
   amazonSnapshot: AmazonSnapshot | null;
@@ -90,20 +182,46 @@ export interface Product {
 
 export const STAGES: Stage[] = ["spec", "sourcing", "outreach", "sampling", "quotation"];
 export const STAGE_LABEL: Record<string, string> = {
-  idea: "Idea", spec: "Spec Sheet", sourcing: "Sourcing (Yuki)",
-  outreach: "Outreach", sampling: "Sampling", quotation: "Quotation",
-  live: "Live", dead: "Dead",
+  idea: "Idea",
+  spec: "Spec Sheet",
+  sourcing: "Sourcing (Yuki)",
+  outreach: "Outreach",
+  sampling: "Sampling",
+  quotation: "Quotation",
+  live: "Live",
+  dead: "Dead",
 };
 
-export const FSTAGES: FStage[] = ["intro", "contacted", "sample_requested", "sample_yiwu", "sample_ny", "sample_confirmed", "quoted", "negotiating", "ordered"];
+export const FSTAGES: FStage[] = [
+  "intro",
+  "contacted",
+  "sample_requested",
+  "sample_yiwu",
+  "sample_ny",
+  "sample_confirmed",
+  "quoted",
+  "negotiating",
+  "ordered",
+];
 export const FSTAGE_LABEL: Record<string, string> = {
-  intro: "Intro", contacted: "Contacted", sample_requested: "Sample Req.",
-  sample_yiwu: "Sample Yiwu", sample_ny: "Sample NY",
-  sample_confirmed: "Sample OK", quoted: "Quoted",
-  negotiating: "Negotiating", ordered: "Ordered",
+  intro: "Intro",
+  contacted: "Contacted",
+  sample_requested: "Sample Req.",
+  sample_yiwu: "Sample Yiwu",
+  sample_ny: "Sample NY",
+  sample_confirmed: "Sample OK",
+  quoted: "Quoted",
+  negotiating: "Negotiating",
+  ordered: "Ordered",
 };
 
-export const FACTORY_STAGES: FactoryStage[] = ["spec_agreed", "sample_committed", "passed_china", "arrived_ny", "sample_approved"];
+export const FACTORY_STAGES: FactoryStage[] = [
+  "spec_agreed",
+  "sample_committed",
+  "passed_china",
+  "arrived_ny",
+  "sample_approved",
+];
 export const FACTORY_STAGE_LABELS: Record<FactoryStage, string> = {
   spec_agreed: "Spec agreed",
   sample_committed: "Sample committed",
@@ -124,14 +242,23 @@ export function normF(f: Factory): Factory {
   }
   // Infer factoryStage from existing fstage if not set
   if (!(f as any).factoryStage) {
-    if (f.fstage === "sample_confirmed" || f.fstage === "quoted" || f.fstage === "negotiating" || f.fstage === "ordered") (f as any).factoryStage = "sample_approved";
+    if (
+      f.fstage === "sample_confirmed" ||
+      f.fstage === "quoted" ||
+      f.fstage === "negotiating" ||
+      f.fstage === "ordered"
+    )
+      (f as any).factoryStage = "sample_approved";
     else if (f.sampleStatus === "received" || f.fstage === "sample_ny") (f as any).factoryStage = "arrived_ny";
     else if (f.sampleStatus === "shipped" || f.fstage === "sample_yiwu") (f as any).factoryStage = "passed_china";
-    else if (f.sampleStatus === "requested" || f.fstage === "sample_requested") (f as any).factoryStage = "sample_committed";
+    else if (f.sampleStatus === "requested" || f.fstage === "sample_requested")
+      (f as any).factoryStage = "sample_committed";
     else (f as any).factoryStage = "spec_agreed";
   }
-  f.comments = f.comments || []; f.reminders = f.reminders || [];
-  f.quotes = f.quotes || []; f.files = f.files || [];
+  f.comments = f.comments || [];
+  f.reminders = f.reminders || [];
+  f.quotes = f.quotes || [];
+  f.files = f.files || [];
   (f as any).people = Array.isArray((f as any).people) ? (f as any).people : [];
   return f;
 }
@@ -153,7 +280,9 @@ export function uid(): string {
 }
 
 export function normP(p: Product): Product {
-  p.asin = p.asin || ""; p.imageUrl = p.imageUrl || ""; p.fbaSheetUrl = (p as any).fbaSheetUrl || "";
+  p.asin = p.asin || "";
+  p.imageUrl = p.imageUrl || "";
+  p.fbaSheetUrl = (p as any).fbaSheetUrl || "";
   (p as any).startDate = (p as any).startDate || "";
   (p as any).masterSku = (p as any).masterSku || "";
   (p as any).skus = Array.isArray((p as any).skus) ? (p as any).skus : [];
@@ -172,20 +301,23 @@ export function normP(p: Product): Product {
   p.yukiBriefs = Array.isArray((p as any).yukiBriefs) ? (p as any).yukiBriefs : [];
   (p as any).approach = (p as any).approach === "fresh" ? "fresh" : "already_selling";
   const snap = (p as any).amazonSnapshot;
-  (p as any).amazonSnapshot = snap && typeof snap === "object"
-    ? {
-      title: String(snap.title || ""),
-      bullets: Array.isArray(snap.bullets) ? snap.bullets.map((b: any) => String(b)) : [],
-      description: String(snap.description || ""),
-      imageUrls: Array.isArray(snap.imageUrls) ? snap.imageUrls.map((u: any) => String(u)) : [],
-      fetchedAt: typeof snap.fetchedAt === "number" ? snap.fetchedAt : Date.now(),
-    } : null;
+  (p as any).amazonSnapshot =
+    snap && typeof snap === "object"
+      ? {
+          title: String(snap.title || ""),
+          bullets: Array.isArray(snap.bullets) ? snap.bullets.map((b: any) => String(b)) : [],
+          description: String(snap.description || ""),
+          imageUrls: Array.isArray(snap.imageUrls) ? snap.imageUrls.map((u: any) => String(u)) : [],
+          fetchedAt: typeof snap.fetchedAt === "number" ? snap.fetchedAt : Date.now(),
+        }
+      : null;
   (p as any).productStatus = ["queue", "active", "completed"].includes((p as any).productStatus)
-    ? (p as any).productStatus : "queue";
-  (p as any).estimatedMonthlySales = typeof (p as any).estimatedMonthlySales === "number"
-    ? (p as any).estimatedMonthlySales : 0;
-  (p as any).averagePricePerUnit = typeof (p as any).averagePricePerUnit === "number"
-    ? (p as any).averagePricePerUnit : 0;
+    ? (p as any).productStatus
+    : "queue";
+  (p as any).estimatedMonthlySales =
+    typeof (p as any).estimatedMonthlySales === "number" ? (p as any).estimatedMonthlySales : 0;
+  (p as any).averagePricePerUnit =
+    typeof (p as any).averagePricePerUnit === "number" ? (p as any).averagePricePerUnit : 0;
   return p;
 }
 
@@ -193,18 +325,29 @@ export function normP(p: Product): Product {
 // silently anything else (e.g. "flexible" or "open").
 export function normSpecField(f: any): SpecField {
   const tag: SpecFieldTag = f && (f.tag === "flexible" || f.tag === "open" || f.tag === "locked") ? f.tag : "locked";
-  const source: SpecFieldSource = f && (f.source === "image" || f.source === "inferred" || f.source === "listing") ? f.source : "inferred";
+  const source: SpecFieldSource =
+    f && (f.source === "image" || f.source === "inferred" || f.source === "listing") ? f.source : "inferred";
   return {
-    id: String((f && f.id) || uid()),
-    label: String((f && f.label) || ""),
-    value: String((f && f.value) || ""),
+    id: String(f?.id || uid()),
+    label: String(f?.label || ""),
+    value: String(f?.value || ""),
     source,
     tag,
   };
 }
 
 export function blankSpec(): Spec {
-  return { skus: "", sizes: "", packSizes: "", materials: "", orderUnits: "", photos: "", notes: "", sheetUrl: "", lastUpdate: "" };
+  return {
+    skus: "",
+    sizes: "",
+    packSizes: "",
+    materials: "",
+    orderUnits: "",
+    photos: "",
+    notes: "",
+    sheetUrl: "",
+    lastUpdate: "",
+  };
 }
 
 export function blankYukiChecklist(): YukiChecklist {
@@ -218,8 +361,18 @@ export function blankCosts(): Costs {
 // --- Playbook / durable settings ---
 export type SampleAskTiming = "after_layer_2" | "after_layer_3";
 
-export interface PlaybookPerson { name: string; role: string; location: string; whatsapp: string; email: string }
-export interface PlaybookHoliday { name: string; startDate: string; endDate: string }
+export interface PlaybookPerson {
+  name: string;
+  role: string;
+  location: string;
+  whatsapp: string;
+  email: string;
+}
+export interface PlaybookHoliday {
+  name: string;
+  startDate: string;
+  endDate: string;
+}
 
 export interface PlaybookSettings {
   sampleAskTiming: SampleAskTiming;
@@ -248,12 +401,16 @@ export function defaultPlaybookSettings(): PlaybookSettings {
     ourBrands: [...OUR_BRANDS_SEED],
     approachADisclosures: "We sell on Amazon and Retail.",
     ourPeople: [
-      { name: "Yuki", role: "Factory relations / sourcing", location: "China", whatsapp: "+86 180 6993 6600", email: "" },
+      {
+        name: "Yuki",
+        role: "Factory relations / sourcing",
+        location: "China",
+        whatsapp: "+86 180 6993 6600",
+        email: "",
+      },
       { name: "Shene", role: "Employee", location: "New York", whatsapp: "", email: "" },
     ],
-    holidays: [
-      { name: "National Day Golden Week", startDate: "2026-10-01", endDate: "2026-10-07" },
-    ],
+    holidays: [{ name: "National Day Golden Week", startDate: "2026-10-01", endDate: "2026-10-07" }],
   };
 }
 
@@ -261,21 +418,36 @@ export function normSettings(s: any): PlaybookSettings {
   const d = defaultPlaybookSettings();
   if (!s || typeof s !== "object") return d;
   return {
-    sampleAskTiming: s.sampleAskTiming === "after_layer_2" || s.sampleAskTiming === "after_layer_3" ? s.sampleAskTiming : d.sampleAskTiming,
+    sampleAskTiming:
+      s.sampleAskTiming === "after_layer_2" || s.sampleAskTiming === "after_layer_3"
+        ? s.sampleAskTiming
+        : d.sampleAskTiming,
     nudgeLimit: typeof s.nudgeLimit === "number" ? s.nudgeLimit : d.nudgeLimit,
     sampleFeeRule: typeof s.sampleFeeRule === "string" ? s.sampleFeeRule : d.sampleFeeRule,
     boxScheduleDay: typeof s.boxScheduleDay === "string" ? s.boxScheduleDay : d.boxScheduleDay,
-    boxScheduleCutoffTime: typeof s.boxScheduleCutoffTime === "string" ? s.boxScheduleCutoffTime : d.boxScheduleCutoffTime,
+    boxScheduleCutoffTime:
+      typeof s.boxScheduleCutoffTime === "string" ? s.boxScheduleCutoffTime : d.boxScheduleCutoffTime,
     yiwuAddress: typeof s.yiwuAddress === "string" && s.yiwuAddress ? s.yiwuAddress : d.yiwuAddress,
-    ourBrands: Array.isArray(s.ourBrands) && s.ourBrands.length > 0
-      ? s.ourBrands.map((b: any) => String(b)).filter(Boolean)
-      : [...d.ourBrands],
+    ourBrands:
+      Array.isArray(s.ourBrands) && s.ourBrands.length > 0
+        ? s.ourBrands.map((b: any) => String(b)).filter(Boolean)
+        : [...d.ourBrands],
     approachADisclosures: typeof s.approachADisclosures === "string" ? s.approachADisclosures : d.approachADisclosures,
     ourPeople: Array.isArray(s.ourPeople)
-      ? s.ourPeople.map((p: any) => ({ name: String(p?.name || ""), role: String(p?.role || ""), location: String(p?.location || ""), whatsapp: String(p?.whatsapp || ""), email: String(p?.email || "") }))
+      ? s.ourPeople.map((p: any) => ({
+          name: String(p?.name || ""),
+          role: String(p?.role || ""),
+          location: String(p?.location || ""),
+          whatsapp: String(p?.whatsapp || ""),
+          email: String(p?.email || ""),
+        }))
       : d.ourPeople,
     holidays: Array.isArray(s.holidays)
-      ? s.holidays.map((h: any) => ({ name: String(h?.name || ""), startDate: String(h?.startDate || ""), endDate: String(h?.endDate || "") }))
+      ? s.holidays.map((h: any) => ({
+          name: String(h?.name || ""),
+          startDate: String(h?.startDate || ""),
+          endDate: String(h?.endDate || ""),
+        }))
       : d.holidays,
   };
 }
@@ -284,7 +456,7 @@ export function normSettings(s: any): PlaybookSettings {
 
 export type DraftType = "opening" | "reply" | "nudge" | "thanks" | "relay";
 export type DraftLayer = 1 | 2 | 3 | 4 | 5;
-export type DraftStatus = "pending" | "sent" | "disapproved" | "closed";
+export type DraftStatus = "pending" | "sent" | "disapproved" | "closed" | "ignored";
 
 export interface Draft {
   id: string;
@@ -384,7 +556,13 @@ export interface AmazonSnapshot {
   fetchedAt: number;
 }
 
-export interface SpecFieldV2 { key: string; label: string; value: string; tag: "locked" | "flexible"; status: "filled" | "needs_input" }
+export interface SpecFieldV2 {
+  key: string;
+  label: string;
+  value: string;
+  tag: "locked" | "flexible";
+  status: "filled" | "needs_input";
+}
 
 export interface SpecVersionRow {
   id: string;
@@ -447,7 +625,11 @@ export interface Chat {
   createdAt: number;
 }
 
-export interface ChatMember { id: string; chatId: string; contactId: string }
+export interface ChatMember {
+  id: string;
+  chatId: string;
+  contactId: string;
+}
 
 export interface Message {
   id: string;
@@ -481,20 +663,33 @@ export interface OutboxRow {
   createdAt: number;
 }
 
-export type QuestionKind = "question" | "fee" | "product_pick" | "sample_flag" | "sample_review" | "send_uncertain" | "guardrail_block";
+export type QuestionKind =
+  | "question"
+  | "fee"
+  | "product_pick"
+  | "sample_flag"
+  | "sample_review"
+  | "send_uncertain"
+  | "guardrail_block";
 
 export interface Question {
   id: string;
   factoryProductId: string | null;
   kind: QuestionKind;
   body: unknown;
-  status: "open" | "answered";
+  status: "open" | "answered" | "ignored";
   answer: unknown;
   importance: "high" | "medium" | "low";
   createdAt: number;
 }
 
-export interface QuoteRow { id: string; factoryProductId: string; messageId: string | null; text: string; createdAt: number }
+export interface QuoteRow {
+  id: string;
+  factoryProductId: string;
+  messageId: string | null;
+  text: string;
+  createdAt: number;
+}
 
 export interface OpenItem {
   id: string;
@@ -508,7 +703,17 @@ export interface OpenItem {
   resolvedAt: number | null;
 }
 
-export type SampleStage = "waiting_tracking" | "to_yiwu" | "in_yiwu" | "problem" | "ready_to_ship" | "to_ny" | "in_ny" | "approved" | "rejected" | "change_requested";
+export type SampleStage =
+  | "waiting_tracking"
+  | "to_yiwu"
+  | "in_yiwu"
+  | "problem"
+  | "ready_to_ship"
+  | "to_ny"
+  | "in_ny"
+  | "approved"
+  | "rejected"
+  | "change_requested";
 
 export interface Sample {
   id: string;
@@ -533,7 +738,11 @@ export interface Shipment {
   createdAt: number;
 }
 
-export interface ShipmentItem { id: string; shipmentId: string; sampleId: string }
+export interface ShipmentItem {
+  id: string;
+  shipmentId: string;
+  sampleId: string;
+}
 
 export interface Notification {
   id: string;
@@ -577,7 +786,12 @@ export interface AgentJob {
 
 // Pure undo planner (unit-testable, no I/O): given an activity_log entry,
 // describe how to restore the before-state. Returns null when not undoable.
-export interface UndoPlan { collection: string; id: string; restore: any; remove: boolean }
+export interface UndoPlan {
+  collection: string;
+  id: string;
+  restore: any;
+  remove: boolean;
+}
 
 export function planUndo(entry: ActivityLogEntry): UndoPlan | null {
   if (!entry.undoable || entry.undoneAt) return null;

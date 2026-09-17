@@ -24,17 +24,17 @@ describe("sample stage transitions (§3.5)", () => {
     const result = onTrackingNumber(baseSample, "SF1234567890", "SF Express");
     expect(result.sample.stage).toBe("to_yiwu");
     expect(result.newShipment).toBeDefined();
-    expect(result.newShipment!.leg).toBe("china_to_yiwu");
-    expect(result.newShipment!.trackingNumber).toBe("SF1234567890");
-    expect(result.newShipment!.carrier).toBe("SF Express");
-    expect(result.newShipment!.status).toBe("in_transit");
+    expect(result.newShipment?.leg).toBe("china_to_yiwu");
+    expect(result.newShipment?.trackingNumber).toBe("SF1234567890");
+    expect(result.newShipment?.carrier).toBe("SF Express");
+    expect(result.newShipment?.status).toBe("in_transit");
   });
 
   it("delivered to Yiwu → Yuki notified, sample → in_yiwu", () => {
     const result = onChinaDelivered({ ...baseSample, stage: "to_yiwu" });
     expect(result.sample.stage).toBe("in_yiwu");
     expect(result.notification).toBeDefined();
-    expect(result.notification!.text).toContain("Yiwu");
+    expect(result.notification?.text).toContain("Yiwu");
   });
 
   it("Yuki pass → ready_to_ship", () => {
@@ -44,19 +44,18 @@ describe("sample stage transitions (§3.5)", () => {
   });
 
   it("Yuki problem → flagged card on Actionables", () => {
-    const result = onYukiProblem(
-      { ...baseSample, stage: "in_yiwu" },
-      "Color doesn't match spec",
-      ["photo1.jpg", "photo2.jpg"],
-    );
+    const result = onYukiProblem({ ...baseSample, stage: "in_yiwu" }, "Color doesn't match spec", [
+      "photo1.jpg",
+      "photo2.jpg",
+    ]);
     expect(result.sample.stage).toBe("problem");
     expect(result.sample.qcResult).toBe("problem");
     expect(result.sample.qcNotes).toBe("Color doesn't match spec");
     expect(result.sample.photos).toEqual(["photo1.jpg", "photo2.jpg"]);
     expect(result.newQuestion).toBeDefined();
-    expect(result.newQuestion!.kind).toBe("sample_flag");
-    expect(result.newQuestion!.importance).toBe("high");
-    expect(result.newQuestion!.status).toBe("open");
+    expect(result.newQuestion?.kind).toBe("sample_flag");
+    expect(result.newQuestion?.importance).toBe("high");
+    expect(result.newQuestion?.status).toBe("open");
   });
 
   it("box confirmed → yiwu_to_ny shipment with items, each sample → to_ny", () => {
@@ -93,16 +92,13 @@ describe("sample stage transitions (§3.5)", () => {
   });
 
   it("suggest a change → creates a factory draft needing approval", () => {
-    const result = onSuggestChange(
-      { ...baseSample, id: "s1", stage: "in_ny" as const },
-      "Make it 80% cotton",
-    );
+    const result = onSuggestChange({ ...baseSample, id: "s1", stage: "in_ny" as const }, "Make it 80% cotton");
     expect(result.sample.stage).toBe("change_requested");
     expect(result.sample.haimResult).toBe("change_requested");
     expect(result.newDraft).toBeDefined();
-    expect(result.newDraft!.kind).toBe("sample_change");
-    expect(result.newDraft!.status).toBe("pending");
-    expect(result.newDraft!.factory_product_id).toBe("fp1");
+    expect(result.newDraft?.kind).toBe("sample_change");
+    expect(result.newDraft?.status).toBe("pending");
+    expect(result.newDraft?.factory_product_id).toBe("fp1");
   });
 
   it("Haim approve → approved", () => {

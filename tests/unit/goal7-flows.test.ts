@@ -275,8 +275,8 @@ describe("Goal 7 approval flows", () => {
     // The card shows this exact message...
     const dec = await decisionsGet();
     const cards = ((await dec.json()) as any).cards;
-    const fee = cards.find((c: { id?: string }) => c.id === q.id);
-    expect(fee.feeMessage).toBe(yuki);
+    const fee = cards.find((c: { id?: string }) => c.id === `question:${q.id}`);
+    expect(fee.decisionNeeded).toContain(yuki);
     // ...and approving the fee queues exactly it.
     const res = await answerPost(
       new NextRequest(`http://test/api/questions/${q.id}/answer`, {
@@ -347,9 +347,11 @@ describe("Goal 7 approval flows", () => {
     expect((await dbFind("outbox", (x: { id?: string; status?: string }) => x.id === row.id))[0].status).toBe("sent");
   });
 
-  it("decisions payload: counters, high-first-then-oldest, no pipeline ideas", async () => {
+  it("decisions payload: one merged card per conversation, no codes/importance, no pipeline ideas", async () => {
     await seedApprovableDraft();
-    const oldLow: Question = {
+    // A dashboard-store question with no factoryProductId is skipped (nothing
+    // to attach it to) rather than shown as an orphan card.
+    const orphan: Question = {
       id: nid("q"),
       factoryProductId: null,
       kind: "question",
@@ -359,18 +361,19 @@ describe("Goal 7 approval flows", () => {
       importance: "low",
       createdAt: Date.now() - 99999,
     };
-    await saveQuestion(oldLow);
+    await saveQuestion(orphan);
     const res = await decisionsGet();
     expect(res.status).toBe(200);
     const payload = (await res.json()) as any;
-    expect(payload.counts.toApprove).toBeGreaterThanOrEqual(1);
-    expect(payload.counts.questions).toBeGreaterThanOrEqual(1);
-    expect(typeof payload.counts.samples).toBe("number");
-    const imps = payload.cards.map((c: { importance?: string }) => c.importance);
-    const firstLow = imps.findIndex((i: string) => i === "low");
-    const lastHigh = imps.lastIndexOf("high");
-    expect(firstLow === -1 || lastHigh < firstLow).toBe(true);
+    expect(payload.count).toBeGreaterThanOrEqual(1);
+    expect(payload.cards.length).toBe(payload.count);
+    // No internal codes, no importance labels, no old multi-card kinds.
     expect(JSON.stringify(payload)).not.toMatch(/pipeline|ideas/i);
+    expect(JSON.stringify(payload)).not.toMatch(/"code"|"importance"/);
+    for (const c of payload.cards) {
+      expect(typeof c.id).toBe("string");
+      expect(["draft", "question"]).toContain(c.id.split(":")[0]);
+    }
   });
 
   it("outbox claim returns the queued row with bridge routable chat id", async () => {

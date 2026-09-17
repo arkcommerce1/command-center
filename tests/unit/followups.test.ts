@@ -1,6 +1,7 @@
 // Follow-up timing tests (SPEC §3.6, Goal 9).
 import { describe, expect, it } from "vitest";
-import { planFollowups, type OpenItemSnapshot } from "@/lib/cc/followups";
+
+import { type OpenItemSnapshot, planFollowups } from "@/lib/cc/followups";
 
 /** Build a China-time instant: cst(2026, 9, 18, 17) = Sep 18 2026, 5pm CST. */
 function cst(y: number, m: number, d: number, h: number, min = 0): Date {
