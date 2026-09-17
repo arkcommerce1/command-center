@@ -74,7 +74,7 @@ export async function GET() {
   // Factory lookup by id (for factory name)
   const agentFactoryById = new Map(agentFactories.map((f: any) => [f.id, f]));
   // Chat lookup by chat_id (for factory name fallback)
-  const agentChats: any[] = [];
+  let agentChats: any[] = [];
   try {
     agentChats = await dbFind("chats", () => true);
   } catch { /* agent store may not be initialized */ }
