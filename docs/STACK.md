@@ -589,6 +589,84 @@ Synced dashboard `.env.local` CC_AGENT_TOKEN to match Donna's full 64-char token
 5. **Yuki warning**: If Yuki's entry has no WhatsApp number, the Settings page shows "Add Yuki's WhatsApp number."
 6. **Shene default**: Shene's phone is empty by default — it needs to be filled in from the Settings page.
 
+## Session Start Audit (Sep 17, 2026) — Claude Code, first session as sole owner
+
+Read-only audit per CLAUDE.md "First session" instructions. No code changed.
+Verified against the **live site** (`http://2.25.175.196`) via HTTP, and by
+reading source in this repo. This cloud session has **no SSH/DB access to the
+VPS** (no `ssh` binary, no `.env.local` present here) — findings about the
+live database come from hitting the live dashboard's own read APIs
+(`/api/products`, `/api/contacts`, `/api/decisions`, `/api/messages`, etc.),
+not direct Postgres queries.
+
+### Stack recap (still accurate)
+Next.js 16 / React 19 / TypeScript strict / Tailwind v4 / shadcn, no ORM.
+Two Postgres-backed stores behind one DB (`command_center` on the VPS):
+- **Dashboard store** (`src/lib/cc/store.ts`, `pg-adapter.ts`) — relational
+  tables for products, factories, contacts, settings, etc.
+- **Agent store** (`src/lib/cc/agent-store.ts`) — one JSON blob
+  (`agent_kv`, row `id='db'`) holding everything Donna's Hermes plugin
+  writes: `agentJobs`, `messages`, `drafts`, `draftVersions`, `questions`,
+  `factories` (a *different* factories concept than the dashboard's),
+  `chats`, etc.
+These do not auto-sync. Routes that need "the real picture" (e.g.
+`/api/decisions`) must explicitly merge both — most routes don't, which is
+the root of several bugs below. Donna's plugin lives only on the VPS
+filesystem (`.../plugins/command_center/__init__.py`), not in this git repo.
+Auth: Auth.js/Google code exists (`src/auth.ts`, `/login`,
+`/api/auth/[...nextauth]`) but is fully disabled — `src/proxy.ts` is a
+passthrough stub, so **every API route is open with no login**, including
+the `/api/agent/*` routes only meant for Donna (those do check
+`CC_AGENT_TOKEN` server-side; the dashboard-facing `/api/*` routes check
+nothing).
+
+### Page/feature status
+
+| Area | Status | Evidence |
+|---|---|---|
+| Dashboard home (`/dashboard/default`) | **Works, with real data** | Live HTML confirms all 5 required cards (Products Active/Queue/Completed, Actionables, Est. Monthly Sales) are coded in `page.tsx`. Did not confirm the "Donna connected · last message" status line renders live data — no GET status endpoint found, only `POST /api/agent/status` (write-only, for Donna). Likely missing or fake. |
+| Products list/detail | **Works, mixed with test data** | 3 products live: 2 are leftover junk ("No Spec Product", blank spec, `queue` status) and 1 real one (High Visibility Reflective Safety Vest, MB-0804, real ASIN/image). |
+| Product statuses | **Fixed, one leftover field** | Real products use `productStatus: queue/active/completed` correctly. But the raw record still carries a legacy `stage: "idea"` field nobody reads anymore — dead, not shown in UI, but a landmine for the next person who greps for status. |
+| Spec PDF / AI spec draft / Send Yuki Brief | **Not tested this session** (would require actually generating/sending — held off since this is a no-code, look-only session) | Code paths present per prior STACK.md audit (Round 3): shared `spec-pdf-generator.ts`, dual-font fix, Yuki brief popup. Not re-verified live. |
+| **Messages pipeline** | **Broken / duplicated** | Two separate, independent message-viewing pages exist: `/dashboard/messages` (own client component hitting `/api/chats`) and `/dashboard/activity` (hosts a different `MessagesView` component per Round-5-era STACK notes). CLAUDE.md names only one messages page. This is exactly the "two versions of the same feature" anti-pattern the file warns against. |
+| **Actionables** | **Broken — still the old multi-card design** | Live `/api/decisions` (which `/dashboard/actionables` calls) returns internal codes (`"code":"D1.3"`, `"D2.1"`, `"D3.1"`), a separate `"kind":"product_pick"` card type distinct from message cards, and duplicate cards for what's clearly the same simulated inbound message repeated 3 times under different `factoryProductId`s. `/api/actionables` (a second, apparently unused endpoint) returns `[]`. All of this matches CLAUDE.md's "Known problems at handover" list almost verbatim — it has not been fixed despite HANDOVER.md claiming Goal 1 "DONE and deployed." Goal 1 fixed *whether drafts show up at all*; it did not fix the card design itself. |
+| Contacts | **Has a real duplicate-contact bug** | Live `/api/contacts` shows "Carlos from Nanjong" as **5 separate contact rows**, all on the exact same WhatsApp id (`15559998888@s.whatsapp.net`) — direct violation of "No duplicates." Also shows Haim's own real phone number (`19179571149`) auto-created as an **unmatched factory contact** ("Factory Person") rather than being recognized as "Ours" — a live "Our people" phone-matching gap, not just old test debris. |
+| Factories (dashboard concept) | **Untested, looks empty** | The one real product has zero linked factories (`/api/products/:id/factories` → `[]`). No live proof either way that the factory ladder/summary pages work with real data. |
+| Settings (Our people, playbook) | **Works with real data** | `/api/settings` returns real values: Yuki and Shene with real phone numbers, real Yiwu address, real brand list. This part looks solid. |
+| "What Donna learned" (learning/lessons page) | **Not built** | Confirmed absent — no lessons/rules schema or Settings sub-page exists yet (matches HANDOVER.md Goals 3–8 "not started"). |
+| Login/auth | **Intentionally disabled**, not broken | Matches HANDOVER.md; flagged only because CLAUDE.md doesn't mention it and it means literally anyone with the URL can hit every API. |
+
+### Test data currently in the live database (via live API, not built by me)
+
+**Products** (`/api/products`):
+- `m1mtelzknp8g` — "No Spec Product" (blank, `queue`)
+- `5txs0p9gn5do` — "No Spec Product" (blank, `queue`)
+- (Real: `53jlkek5qg34` — High Visibility Reflective Safety Vest, MB-0804 — keep)
+
+**Contacts** (`/api/contacts`, 12 total, 11 look like test debris):
+- `m2g0oa7kub9i` "Test User" (`wa-test`)
+- `ik6wf6062pb7` "Factory Person" (`19179571149` — this is actually Haim's real number, mis-filed as a factory contact, not just "fake")
+- `opdpxm9jcpax` "Carlos from Nanjong" (`15551234567@s.whatsapp.net`)
+- `19v10ikqhnmm` "Maria from Zhejiang Factory" (`15558887777@s.whatsapp.net`)
+- `xzkw70ewvf9s`, `6575wrmxvqwk`, `9jkxixhm1g4d`, `ca7auvsg3drx`, `2h6hy9gy57k0`, `cqlrronzfvho` — six duplicate rows for "Carlos/Shene from Nanjong" all on `15559998888@s.whatsapp.net`
+- `g5e9dthgp0bl` "Wendy from GreenLeaf Mfg" (`8613900001111@s.whatsapp.net`)
+- (`x8zd3ii0u7c2` "Chessa" is marked `kind: ours` — unclear if real or test; didn't touch it, worth asking Haim)
+
+**Messages/Actionables** — all traceable to the fabricated `Carlos`/`Wendy`/`Maria`/"Nanjong Industrial Company" senders above, sent into the real **CC Test** WhatsApp group per HANDOVER.md §3, plus one `testclaimzvvbkq` job HANDOVER.md says was inserted directly via psql. These produce the duplicate `D1.3`/`D2.1`/`D3.1` Actionables cards and `product_pick` cards seen live.
+
+I did not delete any of this — CLAUDE.md says delete test data only "once its check passes," and no check has passed yet since Actionables is still broken. Deleting now could also delete evidence useful for fixing the card design. Recommend deleting it as part of the Actionables fix, once the new one-card design is live and re-verified with a real phone.
+
+### Proposed order to fix things
+
+1. **Actionables → one card design.** This is the most-broken, most-visible thing, it's what Haim actually looks at every day, and CLAUDE.md calls it out by name. Rebuild `/api/decisions` (or replace it) to emit exactly one merged card per factory conversation — no `code`, no separate `product_pick` kind, no duplicate cards per message. Wire in the exact 4 buttons (Approve/Suggest changes/Disapprove/Ignore) with collapsed "Previous drafts."
+2. **Fix the live contact-matching bugs surfaced above** (duplicate "Carlos" rows, Haim's own number filed as a factory contact) — needed before Actionables can be trusted, since one factory conversation should map to one contact.
+3. **Delete the test data listed above**, once the new Actionables design is verified end-to-end with one real message from a real phone (not "Our people") into CC Test.
+4. **Collapse the messages duplication** — pick one of `/dashboard/messages` or `/dashboard/activity`, delete the other.
+5. **Verify Spec PDF / Send Yuki Brief / factory ladder pages with real data** — these were "verified" in earlier rounds using fake data or not re-checked; re-confirm before trusting them.
+6. **Build the Goals 3–8 learning system** ("What Donna learned" page, lessons/rules) — biggest net-new build, correctly last since everything above needs to be stable and trustworthy first (learning from a broken pipeline teaches wrong lessons).
+
+Waiting for Haim's go-ahead before changing any code.
+
 ## Round 5 — Goal 1: Why Messages Don't Create Actionables
 
 ### Root cause (3 issues)
