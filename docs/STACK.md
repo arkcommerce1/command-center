@@ -630,3 +630,58 @@ Not yet built: lesson records (Goal 3), rule extraction from feedback (Goal 4), 
 - `/api/decisions` (Actionables page data) only read the dashboard Postgres store (0 rows) — plugin drafts live in a separate agent-store JSON blob. Fixed by merging both, including joining draft versions for `bubbles` text.
 - Plugin's job `done`/`failed` calls omitted `lease_token`, causing every job completion to fail with 400 and get stuck in `running` status forever, silently blocking downstream steps. Fixed both the plugin (now sends lease_token) and the API (relaxed validation to not hard-require it), and manually cleared ~16 stuck legacy jobs.
 - Organize jobs debounce for a 120s "quiet period" per chat before processing — this is intentional (batches rapid-fire messages) but means new-factory drafts can take up to ~2 minutes to appear; this is not a bug, just expected latency.
+
+## Round 5 — Goals 3-8: Learning System
+
+### Goal 3 — Save lessons on every action ✅
+- Approve, Suggest changes, and Disapprove all save lesson records to the agent store
+- Lesson records include: action, draftId, versionId, factoryProductId, incomingMessage, aiDraft (first version text), feedbackText, finalSentText, step, createdAt
+- Approve route (`/api/drafts/[id]/versions/[vid]/approve`) saves lesson + draft example
+- Disapprove route (`/api/drafts/[id]/versions/[vid]/disapprove`) saves lesson + extracts rule
+- Suggest changes route (`/api/drafts/[id]/versions`) saves lesson + extracts rule
+- All three flows now handle BOTH dashboard-store and agent-store drafts (was previously dashboard-store only)
+- Verified via API: approve saved lesson with finalSentText; suggest saved lesson with feedbackText="shorter and call her Shene"; disapprove saved lesson with feedbackText="no exclamation marks"
+
+### Goal 4 — Turn feedback into rules ✅
+- `extractRule()` in `src/lib/cc/learning.ts` extracts short rules from feedback text
+- Patterns detected: "no X" → "Never use X.", "shorter" → "Keep replies short.", "call her X" → "Address the contact as X."
+- Full sentences are used as-is (capitalized, trailing period added)
+- `saveLearnedRule()` checks for existing rules with same text+scope and strengthens them (appends feedback to source)
+- Contradiction detection: rules with the same "topic" (first 40 chars after stripping "never"/"always") are superseded — the older rule gets `status="superseded"` and `supersededById` points to the new rule
+- Verified: "Shorter and call her Shene." rule created from suggestion feedback; "Never use exclamation marks." rule strengthened from disapprove feedback (not duplicated)
+
+### Goal 5 — Every new draft uses learned rules ✅ (code complete, needs real WhatsApp to trigger workers)
+- `src/lib/cc/rule-engine.ts` applies rules to draft bubbles:
+  - "Never use exclamation marks." → strips all "!" → "." 
+  - "Keep replies short." → truncates to 120 chars
+  - "Address the contact as X." → replaces "Hi" with "Hi X,"
+  - "Never mention price/volume/quantity." → removes sentences containing those words
+- `src/app/api/agent/draft-context/route.ts` — GET returns rules+examples, POST applies rules to bubbles
+- Plugin's `_post_draft()` calls the draft-context API before creating each draft, applies rules, and saves `rules_used` on the draft version
+- `rules_used` field added to the agent drafts Zod schema so it's persisted
+- Verified via API: `POST /api/agent/draft-context` with `["Hi!!"]` returns `["Hi.."]` when "Never use exclamation marks" rule is active
+- NOT fully end-to-end verified: the plugin's background workers only start on a real gateway dispatch (incoming WhatsApp message), not on API-simulated messages — see "Architectural note" below
+
+### Goal 6 — "What Donna learned" Settings page ✅
+- `src/app/(main)/dashboard/settings/learning/page.tsx` — full CRUD page:
+  - Lists all active rules with scope, usage count, date, source feedback
+  - Add a rule by hand (with all-factory or one-factory scope)
+  - Edit a rule's wording inline
+  - Delete a rule (soft-delete: status → "deleted")
+  - Superseded rules shown in a separate section
+  - Approval percentage stat: "X% this week vs Y% last week"
+- `GET /api/learned-rules` — list all rules + stats
+- `POST /api/learned-rules` — add a rule by hand
+- `PATCH /api/learned-rules/[id]` — edit a rule
+- `DELETE /api/learned-rules/[id]` — soft-delete a rule
+- Added to sidebar under Settings > "What Donna learned"
+- Verified: add, list, delete all work via API
+
+### Goal 7 — Lessons become tests — NOT STARTED
+The eval test set (`npm run eval:drafter`) has not been built. This requires creating a test runner that uses saved lessons as test cases.
+
+### Goal 8 — End-to-end proof — PARTIAL
+The full loop works at the API level (message → draft → approve → lesson saved → rule created → next draft applies rule), but the plugin's background workers only start on real WhatsApp messages, not API-simulated ones. A real WhatsApp message into the CC Test group would trigger the full loop.
+
+### Architectural note: API-simulated messages don't start workers
+The plugin's background workers (job loop, outbox loop, organize sweeper) are started by `_ensure_workers_started()` which is called from `on_pre_gateway_dispatch` — a hook that only fires when a REAL message arrives through the Hermes gateway (WhatsApp or email). API-simulated messages via `POST /api/agent/ingest` bypass the gateway entirely, so the workers never start. Jobs queue up but are never polled. This is not a bug — it's the intended design (workers start lazily on first real message). But it means end-to-end testing requires a real phone sending into the CC Test WhatsApp group.
