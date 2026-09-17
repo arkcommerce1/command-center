@@ -588,3 +588,26 @@ Synced dashboard `.env.local` CC_AGENT_TOKEN to match Donna's full 64-char token
 4. **Messages page**: Messages from "our people" appear on `/dashboard/messages` with the same data as factory messages. The `is_ours` flag is saved on the message record for potential UI labeling.
 5. **Yuki warning**: If Yuki's entry has no WhatsApp number, the Settings page shows "Add Yuki's WhatsApp number."
 6. **Shene default**: Shene's phone is empty by default — it needs to be filled in from the Settings page.
+
+## Round 5 — Goal 1: Why Messages Don't Create Actionables
+
+### Root cause (3 issues)
+1. **`/api/decisions` only read the dashboard store**: The Actionables page fetches from `/api/decisions`, which only called `listDrafts()` from the dashboard store (Postgres `drafts` table — 0 rows). The plugin creates drafts in the **agent store** (agent_kv JSON blob) via `POST /api/agent/drafts`. The two stores were disconnected — agent store had 6 drafts with 8 versions and proper `bubbles`, but the dashboard saw none.
+
+2. **Plugin job `done` call missing `lease_token`**: The `/api/agent/jobs/:id/done` endpoint requires `lease_token` in the body, but the plugin sent `{}`. Every job completion returned 400 Bad Request, leaving jobs stuck in "running" status forever.
+
+3. **Drafts had no `bubbles` on the draft record**: The agent store stores `bubbles` in `draftVersions`, not on the draft itself. The `/api/decisions` route didn't join to `draftVersions` to get the reply text.
+
+### Fix
+- Rewrote `/api/decisions` to merge agent-store drafts (with their versions/bubbles) + dashboard-store drafts
+- Fixed plugin to send `lease_token` on job `done` and `failed` calls
+- Agent-store drafts now show with `bubbles` (reply text), `lastMessage` (original incoming text), and version history
+
+### Step-by-step trace
+1. Job created? **PASS** — 18 jobs in agent store (contacts + organize + draft)
+2. Job ran? **FAIL** — jobs stuck in "running" because `done` call returned 400 (missing lease_token)
+3. AI call? **PASS** — Nous Portal (z-ai/glm-5.2) works, NOUS_API_KEY set
+4. Decided "needs reply"? **PASS** — draft jobs were created with reason="opener" and bubbles
+5. Waiting for product link? **PARTIAL** — some drafts had `factory_product_id` set, but the Actionables page didn't show them at all
+6. Actionable saved? **PASS** — 6 drafts in agent store with status=pending
+7. Actionables page shows it? **FAIL → FIXED** — now shows 6 drafts with bubbles + 5 questions
