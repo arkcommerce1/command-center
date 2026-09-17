@@ -10,6 +10,7 @@ interface Chat {
 }
 interface Msg {
   id: string; direction: string; text: string; translation: string; sent_at: number | null;
+  sender: string; is_ours: boolean;
 }
 
 function fmtTime(ts: number | null) {
@@ -102,12 +103,18 @@ export default function MessagesPage() {
                     m.direction === "out" ? "self-end bg-primary/10" : "self-start"
                   }`}
                 >
+                  {m.sender && m.direction === "in" && (
+                    <div className="mb-0.5 flex items-center gap-1">
+                      <span className="text-xs font-medium">{m.sender}</span>
+                      {m.is_ours && <Badge variant="secondary" className="text-[9px]">Ours</Badge>}
+                    </div>
+                  )}
                   <div className="text-sm whitespace-pre-wrap">{m.text || "(media)"}</div>
                   {m.translation && (
                     <div className="mt-1 text-xs text-muted-foreground">{m.translation}</div>
                   )}
                   <div className="mt-1 text-[10px] text-muted-foreground">
-                    {m.direction === "out" ? "Donna" : "them"} · {fmtTime(m.sent_at)}
+                    {m.direction === "out" ? "Donna" : (m.sender || "them")} · {fmtTime(m.sent_at)}
                   </div>
                 </div>
               ))}
